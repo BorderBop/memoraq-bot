@@ -3715,6 +3715,74 @@ COMMENT ON FUNCTION extensions.set_graphql_placeholder() IS 'Reintroduces placeh
 
 
 --
+-- Name: sync_message_counters(); Type: FUNCTION; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE FUNCTION gnote.sync_message_counters() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  -- New message inserted
+  IF TG_OP = 'INSERT' THEN
+    UPDATE gnote.users
+    SET all_messages = COALESCE(all_messages, 0) + 1,
+        last_visit = NOW()
+    WHERE id = NEW.user_id;
+
+    UPDATE gnote.topics
+    SET all_messages = COALESCE(all_messages, 0) + 1
+    WHERE id = NEW.topic_id;
+
+    RETURN NEW;
+  END IF;
+
+  -- Message deleted
+  IF TG_OP = 'DELETE' THEN
+    UPDATE gnote.users
+    SET all_messages = GREATEST(COALESCE(all_messages, 0) - 1, 0)
+    WHERE id = OLD.user_id;
+
+    UPDATE gnote.topics
+    SET all_messages = GREATEST(COALESCE(all_messages, 0) - 1, 0)
+    WHERE id = OLD.topic_id;
+
+    RETURN OLD;
+  END IF;
+
+  -- Message moved to another topic or user
+  IF TG_OP = 'UPDATE' THEN
+    IF OLD.user_id IS DISTINCT FROM NEW.user_id THEN
+      UPDATE gnote.users
+      SET all_messages = GREATEST(COALESCE(all_messages, 0) - 1, 0)
+      WHERE id = OLD.user_id;
+
+      UPDATE gnote.users
+      SET all_messages = COALESCE(all_messages, 0) + 1,
+          last_visit = NOW()
+      WHERE id = NEW.user_id;
+    END IF;
+
+    IF OLD.topic_id IS DISTINCT FROM NEW.topic_id THEN
+      UPDATE gnote.topics
+      SET all_messages = GREATEST(COALESCE(all_messages, 0) - 1, 0)
+      WHERE id = OLD.topic_id;
+
+      UPDATE gnote.topics
+      SET all_messages = COALESCE(all_messages, 0) + 1
+      WHERE id = NEW.topic_id;
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+
+ALTER FUNCTION gnote.sync_message_counters() OWNER TO supabase_admin;
+
+--
 -- Name: get_auth(text); Type: FUNCTION; Schema: pgbouncer; Owner: supabase_admin
 --
 
@@ -8710,6 +8778,13 @@ ALTER INDEX realtime.messages_inserted_at_topic_index ATTACH PARTITION realtime.
 --
 
 ALTER INDEX realtime.messages_pkey ATTACH PARTITION realtime.messages_2026_02_19_pkey;
+
+
+--
+-- Name: messages trg_sync_message_counters; Type: TRIGGER; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE TRIGGER trg_sync_message_counters AFTER INSERT OR DELETE OR UPDATE ON gnote.messages FOR EACH ROW EXECUTE FUNCTION gnote.sync_message_counters();
 
 
 --
