@@ -34,8 +34,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        416,
-        192
+        528,
+        448
       ],
       "id": "c5b885d1-fa93-43c3-92f1-c82fb3499029",
       "name": "get topics",
@@ -54,8 +54,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        560,
-        192
+        688,
+        448
       ],
       "id": "f22194d3-4331-4532-b5bc-7a06576a6759",
       "name": "create inline keyboard",
@@ -73,8 +73,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        736,
-        192
+        864,
+        448
       ],
       "id": "ab98d5f5-7696-4413-adae-c58cb7720113",
       "name": "Send Keyboard"
@@ -107,6 +107,31 @@
               },
               "renameOutput": true,
               "outputKey": "create topic"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "2905381c-ea64-46f1-8c26-5c49d7de5231",
+                    "leftValue": "={{ $json.callback_query?.data?.startsWith('get_topic:') || false }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "get mes from topic"
             },
             {
               "conditions": {
@@ -155,8 +180,33 @@
                 ],
                 "combinator": "and"
               },
-              "renameOutput": "={{ true }}",
-              "outputKey": "list topics"
+              "renameOutput": true,
+              "outputKey": "topics"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "704c19a4-68fb-4816-816a-b5cafc175284",
+                    "leftValue": "={{ $json.callback_query?.data?.startsWith('download_msg:') || false }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "=download file"
             },
             {
               "conditions": {
@@ -169,7 +219,7 @@
                 "conditions": [
                   {
                     "id": "c92a3739-d532-4c3d-8830-5e4bb8be0ef2",
-                    "leftValue": "={{ $json.message?.text !== undefined }}",
+                    "leftValue": "={{ $json.message?.text === '/get' }}",
                     "rightValue": "",
                     "operator": {
                       "type": "boolean",
@@ -181,7 +231,32 @@
                 "combinator": "and"
               },
               "renameOutput": true,
-              "outputKey": "get message"
+              "outputKey": "=get topics keyboard"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "abf909d4-e496-4e67-8a2f-7853195cfaf7",
+                    "leftValue": "={{ !!$json.message }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "=get message"
             }
           ]
         },
@@ -205,8 +280,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        -352,
-        -256
+        -192,
+        -448
       ],
       "id": "689075fb-d3b2-4745-96a8-fdc804845aff",
       "name": "save state",
@@ -229,8 +304,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -144,
-        -256
+        -16,
+        -448
       ],
       "id": "9f7fa80d-ff4f-44bd-998d-89ed83aaace6",
       "name": "enter topic name",
@@ -251,8 +326,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        -432,
-        224
+        -256,
+        528
       ],
       "id": "eee43de4-972c-4075-8225-d22c61d5a69a",
       "name": "get user state",
@@ -267,7 +342,7 @@
     {
       "parameters": {
         "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
-        "text": "={{ \n  \"Топик создан ✅\\n📁 \" + $json.topic_title + \n  \"\\n\\nСохранено сообщений: \" + $json.saved_count \n}}",
+        "text": "=={{ \n  \"Топик создан ✅\\n📁 \" + $json.topic_title +\n  \"\\n\\nСохранено сообщений: \" + $json.saved_count +\n  \"\\nВсего сообщений: \" + $json.user_all_messages\n}}",
         "additionalFields": {
           "appendAttribution": false
         }
@@ -275,8 +350,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        592,
-        352
+        544,
+        608
       ],
       "id": "a3f5060c-2e22-48b6-ba49-ed08838da2f8",
       "name": "topic name",
@@ -297,8 +372,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        256,
-        352
+        192,
+        608
       ],
       "id": "cd93cc94-24c7-4888-93c7-12cb045baa96",
       "name": "create topic",
@@ -312,14 +387,14 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH upsert_user AS (\n  INSERT INTO gnote.users (\n    id,\n    name,\n    first_visit,\n    last_visit,\n    all_messages\n  )\n  VALUES (\n    {{ $(\"Telegram Trigger\").first().json.message.from.id }},\n    '{{ $(\"Telegram Trigger\").first().json.message.from.first_name.replace(/'/g, \"''\") }}',\n    NOW(),\n    NOW(),\n    0\n  )\n  ON CONFLICT (id)\n  DO UPDATE SET\n    name = EXCLUDED.name,\n    last_visit = NOW()\n  RETURNING id\n),\ninsert_pending AS (\n  INSERT INTO gnote.pending_messages (\n    user_id,\n    message,\n    created_at\n  )\n  VALUES (\n    {{ $(\"Telegram Trigger\").first().json.message.from.id }},\n    '{{ $(\"Telegram Trigger\").first().json.message.text.replace(/'/g, \"''\") }}',\n    NOW()\n  )\n  RETURNING id, user_id, message, created_at\n)\nSELECT \n  id,\n  user_id,\n  message,\n  created_at\nFROM insert_pending;",
+        "query": "WITH upsert_user AS (\n  INSERT INTO gnote.users (\n    id,\n    name,\n    first_visit,\n    last_visit,\n    all_messages\n  )\n  VALUES (\n    {{ $json.user_id }},\n    '{{ ($json.user_name || \"\").replace(/'/g, \"''\") }}',\n    NOW(),\n    NOW(),\n    0\n  )\n  ON CONFLICT (id)\n  DO UPDATE SET\n    name = EXCLUDED.name,\n    last_visit = NOW()\n  RETURNING id\n),\n\ninsert_pending AS (\n  INSERT INTO gnote.pending_messages (\n    user_id,\n    message,\n    created_at,\n    message_type,\n    file_id,\n    file_unique_id,\n    file_name,\n    mime_type,\n    caption\n  )\n  VALUES (\n    {{ $json.user_id }},\n    '{{ ($json.content || \"\").replace(/'/g, \"''\") }}',\n    NOW(),\n    '{{ ($json.message_type || \"text\").replace(/'/g, \"''\") }}',\n    {{ $json.file_id ? \"'\" + $json.file_id.replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ $json.file_unique_id ? \"'\" + $json.file_unique_id.replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ $json.file_name ? \"'\" + $json.file_name.replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ $json.mime_type ? \"'\" + $json.mime_type.replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ $json.caption ? \"'\" + $json.caption.replace(/'/g, \"''\") + \"'\" : \"NULL\" }}\n  )\n  RETURNING\n    id,\n    user_id,\n    message,\n    created_at,\n    message_type,\n    file_id,\n    file_unique_id,\n    file_name,\n    mime_type,\n    caption\n)\n\nSELECT *\nFROM insert_pending;",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        256,
-        192
+        352,
+        448
       ],
       "id": "df0df0e8-fc5c-4164-b015-b3340f902d8a",
       "name": "add user/message",
@@ -391,8 +466,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
       "position": [
-        -32,
-        224
+        32,
+        528
       ],
       "id": "77e93e5d-d90c-480c-bcae-a56e75981a0b",
       "name": "switch state"
@@ -404,8 +479,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -256,
-        224
+        -112,
+        528
       ],
       "id": "7ebdcec1-366d-4b18-a950-6e0f04bceb3c",
       "name": "normalize state",
@@ -418,8 +493,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -352,
-        -96
+        -192,
+        -176
       ],
       "id": "02ba8071-70a7-4fb4-9c7a-44ecc271ae37",
       "name": "parse selected topic"
@@ -427,14 +502,14 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH selected_topic AS (\n  SELECT id, title, user_id\n  FROM gnote.topics\n  WHERE id = {{ $json.topic_id }}\n    AND user_id = {{ $json.user_id }}\n  LIMIT 1\n),\n\nmoved AS (\n  DELETE FROM gnote.pending_messages\n  WHERE user_id = {{ $json.user_id }}\n    AND EXISTS (SELECT 1 FROM selected_topic)\n  RETURNING\n    id AS pending_id,\n    user_id,\n    message,\n    created_at\n),\n\ninserted AS (\n  INSERT INTO gnote.messages (\n    user_id,\n    topic_id,\n    content,\n    created_at\n  )\n  SELECT\n    moved.user_id,\n    {{ $json.topic_id }},\n    moved.message,\n    moved.created_at\n  FROM moved\n  RETURNING\n    id,\n    user_id,\n    topic_id,\n    content,\n    created_at\n),\n\nstats AS (\n  SELECT\n    COUNT(*) AS saved_count\n  FROM inserted\n)\n\nSELECT\n  stats.saved_count,\n  {{ $json.user_id }}::BIGINT AS user_id,\n  {{ $json.topic_id }}::BIGINT AS topic_id,\n  {{ $json.chat_id }}::BIGINT AS chat_id,\n  '{{ $json.callback_query_id }}' AS callback_query_id,\n  COALESCE((SELECT title FROM selected_topic), '') AS topic_title,\n  (\n    SELECT COALESCE(u.all_messages, 0) + stats.saved_count\n    FROM gnote.users u\n    WHERE u.id = {{ $json.user_id }}\n  ) AS user_all_messages\nFROM stats;",
+        "query": "WITH selected_topic AS (\n  SELECT id, title, user_id\n  FROM gnote.topics\n  WHERE id = {{ $json.topic_id }}\n    AND user_id = {{ $json.user_id }}\n  LIMIT 1\n),\n\nmoved AS (\n  DELETE FROM gnote.pending_messages\n  WHERE user_id = {{ $json.user_id }}\n    AND EXISTS (SELECT 1 FROM selected_topic)\n  RETURNING\n    id AS pending_id,\n    user_id,\n    message,\n    created_at,\n    message_type,\n    file_id,\n    file_unique_id,\n    file_name,\n    mime_type,\n    caption,\n    telegram_file_path,\n    file_url\n),\n\ninserted AS (\n  INSERT INTO gnote.messages (\n    user_id,\n    topic_id,\n    content,\n    created_at,\n    message_type,\n    file_id,\n    file_unique_id,\n    file_name,\n    mime_type,\n    caption,\n    telegram_file_path,\n    file_url\n  )\n  SELECT\n    moved.user_id,\n    {{ $json.topic_id }},\n    moved.message,\n    moved.created_at,\n    COALESCE(moved.message_type, 'text'),\n    moved.file_id,\n    moved.file_unique_id,\n    moved.file_name,\n    moved.mime_type,\n    moved.caption,\n    moved.telegram_file_path,\n    moved.file_url\n  FROM moved\n  RETURNING\n    id,\n    user_id,\n    topic_id,\n    content,\n    created_at,\n    message_type,\n    file_id,\n    file_unique_id,\n    file_name,\n    mime_type,\n    caption,\n    telegram_file_path,\n    file_url\n),\n\nstats AS (\n  SELECT\n    COUNT(*) AS saved_count\n  FROM inserted\n),\n\nupdate_user_counter AS (\n  UPDATE gnote.users u\n  SET all_messages = COALESCE(u.all_messages, 0) + (SELECT saved_count FROM stats)\n  WHERE u.id = {{ $json.user_id }}\n  RETURNING u.all_messages\n)\n\nSELECT\n  stats.saved_count,\n  {{ $json.user_id }}::BIGINT AS user_id,\n  {{ $json.topic_id }}::BIGINT AS topic_id,\n  {{ $json.chat_id }}::BIGINT AS chat_id,\n  '{{ $json.callback_query_id }}' AS callback_query_id,\n  COALESCE((SELECT title FROM selected_topic), '') AS topic_title,\n  COALESCE((SELECT all_messages FROM update_user_counter), 0) AS user_all_messages\nFROM stats;",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        -160,
-        -96
+        -16,
+        -176
       ],
       "id": "e6b15751-a3bc-43d4-950e-f69d0f97e0db",
       "name": "move pending to messages",
@@ -448,14 +523,14 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH moved AS (\n  DELETE FROM gnote.pending_messages\n  WHERE user_id = {{ $json.user_id }}\n  RETURNING\n    id AS pending_id,\n    user_id,\n    message,\n    created_at\n),\n\ninserted AS (\n  INSERT INTO gnote.messages (\n    user_id,\n    topic_id,\n    content,\n    created_at\n  )\n  SELECT\n    moved.user_id,\n    {{ $json.id }},\n    moved.message,\n    moved.created_at\n  FROM moved\n  RETURNING\n    id,\n    user_id,\n    topic_id,\n    content,\n    created_at\n),\n\nstats AS (\n  SELECT\n    COUNT(*) AS saved_count\n  FROM inserted\n)\n\nSELECT\n  stats.saved_count,\n  {{ $json.user_id }}::BIGINT AS user_id,\n  {{ $json.id }}::BIGINT AS topic_id,\n  {{ $(\"Telegram Trigger\").first().json.message.chat.id }}::BIGINT AS chat_id,\n  '{{ $json.title.replace(/'/g, \"''\") }}' AS topic_title,\n  (\n    SELECT COALESCE(u.all_messages, 0) + stats.saved_count\n    FROM gnote.users u\n    WHERE u.id = {{ $json.user_id }}\n  ) AS user_all_messages\nFROM stats;",
+        "query": "WITH moved AS (\n  DELETE FROM gnote.pending_messages\n  WHERE user_id = {{ $json.user_id }}\n  RETURNING\n    id AS pending_id,\n    user_id,\n    message,\n    created_at,\n    message_type,\n    file_id,\n    file_unique_id,\n    file_name,\n    mime_type,\n    caption,\n    telegram_file_path,\n    file_url\n),\n\ninserted AS (\n  INSERT INTO gnote.messages (\n    user_id,\n    topic_id,\n    content,\n    created_at,\n    message_type,\n    file_id,\n    file_unique_id,\n    file_name,\n    mime_type,\n    caption,\n    telegram_file_path,\n    file_url\n  )\n  SELECT\n    moved.user_id,\n    {{ $json.id }},\n    moved.message,\n    moved.created_at,\n    COALESCE(moved.message_type, 'text'),\n    moved.file_id,\n    moved.file_unique_id,\n    moved.file_name,\n    moved.mime_type,\n    moved.caption,\n    moved.telegram_file_path,\n    moved.file_url\n  FROM moved\n  RETURNING\n    id,\n    user_id,\n    topic_id,\n    content,\n    created_at,\n    message_type,\n    file_id,\n    file_unique_id,\n    file_name,\n    mime_type,\n    caption,\n    telegram_file_path,\n    file_url\n),\n\nstats AS (\n  SELECT\n    COUNT(*) AS saved_count\n  FROM inserted\n),\n\nupdate_user_counter AS (\n  UPDATE gnote.users u\n  SET all_messages = COALESCE(u.all_messages, 0) + (SELECT saved_count FROM stats)\n  WHERE u.id = {{ $json.user_id }}\n  RETURNING u.all_messages\n)\n\nSELECT\n  stats.saved_count,\n  {{ $json.user_id }}::BIGINT AS user_id,\n  {{ $json.id }}::BIGINT AS topic_id,\n  {{ $(\"Telegram Trigger\").first().json.message.chat.id }}::BIGINT AS chat_id,\n  '{{ $json.title.replace(/'/g, \"''\") }}' AS topic_title,\n  COALESCE((SELECT all_messages FROM update_user_counter), 0) AS user_all_messages\nFROM stats;",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        448,
-        352
+        352,
+        608
       ],
       "id": "813fc4e9-6beb-4146-afa0-29a4140aba84",
       "name": "move pending after new topic",
@@ -469,7 +544,7 @@
     {
       "parameters": {
         "chatId": "={{ $json.chat_id }}",
-        "text": "={{    $json.saved_count > 0     ? \"Сообщение сохранено ✅\\n\\nСохранено: \" + $json.saved_count + \"\\nВсего сообщений: \" + $json.user_all_messages     : \"Нет сообщений для сохранения ⚠️\" }}",
+        "text": "=={{ \n  $json.saved_count > 0\n    ? \"Сохранено ✅\\n\\nТопик: \" + $json.topic_title + \"\\nСохранено сообщений: \" + $json.saved_count + \"\\nВсего сообщений: \" + $json.user_all_messages\n    : \"Нет сообщений для сохранения ⚠️\"\n}}",
         "additionalFields": {
           "appendAttribution": false
         }
@@ -477,8 +552,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        32,
-        -96
+        192,
+        -176
       ],
       "id": "b1621a63-b2d7-4b32-a145-1db9881cc072",
       "name": "send save result",
@@ -513,8 +588,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        -352,
-        80
+        -192,
+        -32
       ],
       "id": "d974f535-b021-4da2-83cd-daabe9e15a24",
       "name": "get topics with counts",
@@ -533,8 +608,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -144,
-        80
+        -32,
+        -32
       ],
       "id": "e3ac8e5b-7bfe-4b6b-bce6-f8f643799668",
       "name": "format topics list"
@@ -550,8 +625,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        64,
-        80
+        208,
+        -32
       ],
       "id": "147b17fe-0bc0-4a54-b7b4-ed2d78c35486",
       "name": "send topics list",
@@ -562,6 +637,205 @@
           "name": "Telegram account"
         }
       }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  t.id,\n  t.title,\n  COUNT(m.id) AS messages_count\nFROM gnote.topics t\nLEFT JOIN gnote.messages m\n  ON m.topic_id = t.id\n  AND m.user_id = t.user_id\nWHERE t.user_id = {{ $json.message.from.id }}\nGROUP BY t.id, t.title\nORDER BY t.title ASC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -240,
+        320
+      ],
+      "id": "dd8e0958-76d6-4ea7-b2e1-910437747a9b",
+      "name": "get topics for reading",
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nconst topics = items.filter(item => item.json.id && item.json.title);\n\nconst chatId = $('Telegram Trigger').first().json.message.chat.id;\n\nif (topics.length === 0) {\n  return [\n    {\n      json: {\n        chat_id: chatId,\n        text: 'У тебя пока нет топиков 📭'\n      }\n    }\n  ];\n}\n\nconst buttons = topics.map(item => {\n  const title = item.json.title;\n  const count = Number(item.json.messages_count || 0);\n\n  return {\n    text: `📁 ${title} (${count})`,\n    callback_data: `get_topic:${item.json.id}`\n  };\n});\n\nconst rows = [];\nwhile (buttons.length) {\n  rows.push(buttons.splice(0, 1)); // лучше по 1 кнопке в ряд, так читаемее\n}\n\nreturn [\n  {\n    json: {\n      chat_id: chatId,\n      text: 'Выбери топик, из которого показать сообщения:',\n      inline_keyboard: rows\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -64,
+        320
+      ],
+      "id": "2385944d-e6ec-4cb9-9062-9567c0ade93a",
+      "name": "create get topics keyboard"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot8521324041:AAGisZMzzlc0n8AyO1iau4HEzlU9v09akCg/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    chat_id: $json.chat_id,\n    text: $json.text,\n    reply_markup: {\n      inline_keyboard: $json.inline_keyboard\n    }\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        144,
+        320
+      ],
+      "id": "186f8d59-09af-44f2-b2a2-51f6cb2a67e7",
+      "name": "send get topics keyboard"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nif (!input.callback_query) {\n  throw new Error('This node expects callback_query');\n}\n\nconst data = input.callback_query.data;\n// пример: get_topic:18\n\nconst topicId = Number(data.split(':')[1]);\n\nif (!topicId) {\n  throw new Error(`Invalid topic id in callback data: ${data}`);\n}\n\nreturn [\n  {\n    json: {\n      user_id: input.callback_query.from.id,\n      chat_id: input.callback_query.message.chat.id,\n      topic_id: topicId,\n      callback_query_id: input.callback_query.id\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -192,
+        -304
+      ],
+      "id": "f25d1f83-d35f-4e6a-b167-805c196a43cb",
+      "name": "parse get topic"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH selected_topic AS (\n  SELECT id, title, user_id\n  FROM gnote.topics\n  WHERE id = {{ $json.topic_id }}\n    AND user_id = {{ $json.user_id }}\n  LIMIT 1\n),\n\nmessages_list AS (\n  SELECT\n    m.id,\n    m.content,\n    m.created_at,\n    m.message_type,\n    m.file_id,\n    m.file_unique_id,\n    m.file_name,\n    m.mime_type,\n    m.caption,\n    m.telegram_file_path,\n    m.file_url,\n    ROW_NUMBER() OVER (ORDER BY m.created_at DESC, m.id DESC) AS message_number,\n    COUNT(*) OVER () AS total_count\n  FROM gnote.messages m\n  JOIN selected_topic st\n    ON st.id = m.topic_id\n   AND st.user_id = m.user_id\n  ORDER BY m.created_at DESC, m.id DESC\n),\n\nresult_messages AS (\n  SELECT\n    ml.*,\n    st.title AS topic_title,\n    st.id AS topic_id\n  FROM messages_list ml\n  CROSS JOIN selected_topic st\n),\n\nempty_result AS (\n  SELECT\n    NULL::BIGINT AS id,\n    NULL::TEXT AS content,\n    NULL::TIMESTAMP AS created_at,\n    'empty'::TEXT AS message_type,\n    NULL::TEXT AS file_id,\n    NULL::TEXT AS file_unique_id,\n    NULL::TEXT AS file_name,\n    NULL::TEXT AS mime_type,\n    NULL::TEXT AS caption,\n    NULL::TEXT AS telegram_file_path,\n    NULL::TEXT AS file_url,\n    0::BIGINT AS message_number,\n    0::BIGINT AS total_count,\n    st.title AS topic_title,\n    st.id AS topic_id\n  FROM selected_topic st\n  WHERE NOT EXISTS (SELECT 1 FROM messages_list)\n)\n\nSELECT\n  *,\n  {{ $json.user_id }}::BIGINT AS user_id,\n  {{ $json.chat_id }}::BIGINT AS chat_id,\n  '{{ $json.callback_query_id }}' AS callback_query_id\nFROM result_messages\n\nUNION ALL\n\nSELECT\n  *,\n  {{ $json.user_id }}::BIGINT AS user_id,\n  {{ $json.chat_id }}::BIGINT AS chat_id,\n  '{{ $json.callback_query_id }}' AS callback_query_id\nFROM empty_result;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -16,
+        -304
+      ],
+      "id": "be3f3e80-9f9d-44b7-9793-720f83b3a96f",
+      "name": "get messages by topic",
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nif (items.length === 0) {\n  return [\n    {\n      json: {\n        api_method: 'sendMessage',\n        body: {\n          chat_id: $('Telegram Trigger').first().json.callback_query.message.chat.id,\n          text: 'Топик не найден ⚠️'\n        }\n      }\n    }\n  ];\n}\n\nreturn items.map(item => {\n  const data = item.json;\n\n  const chatId = data.chat_id;\n  const messageType = data.message_type || 'text';\n\n  if (messageType === 'empty' || (!data.content && !data.file_id)) {\n    return {\n      json: {\n        api_method: 'sendMessage',\n        body: {\n          chat_id: chatId,\n          text: 'В этом топике пока нет сообщений 📭'\n        }\n      }\n    };\n  }\n\n  // Text message\n  if (messageType === 'text' || !data.file_id) {\n    return {\n      json: {\n        api_method: 'sendMessage',\n        body: {\n          chat_id: chatId,\n          text: data.content || ''\n        }\n      }\n    };\n  }\n\n  const displayName =\n    data.file_name ||\n    data.caption ||\n    data.content ||\n    `[${messageType}]`;\n\n  // Photo: show real photo preview + download button\n  if (messageType === 'photo') {\n    return {\n      json: {\n        api_method: 'sendPhoto',\n        body: {\n          chat_id: chatId,\n          photo: data.file_id,\n          caption: data.caption || '',\n          reply_markup: {\n            inline_keyboard: [\n              [\n                {\n                  text: 'download',\n                  callback_data: `download_msg:${data.id}`\n                }\n              ]\n            ]\n          }\n        }\n      }\n    };\n  }\n\n  // Any other file: show universal icon + file name, button only says \"download\"\n  return {\n    json: {\n      api_method: 'sendMessage',\n      body: {\n        chat_id: chatId,\n        text: `📎 ${displayName}`,\n        reply_markup: {\n          inline_keyboard: [\n            [\n              {\n                text: 'download',\n                callback_data: `download_msg:${data.id}`\n              }\n            ]\n          ]\n        }\n      }\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        -304
+      ],
+      "id": "67c9cdbf-ffbd-4829-a827-c12899b68a21",
+      "name": "format topic messages"
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $('Telegram Trigger').first().json.message;\n\nif (!msg) {\n  throw new Error('No Telegram message found');\n}\n\nlet messageType = 'text';\nlet content = msg.text || '';\nlet fileId = null;\nlet fileUniqueId = null;\nlet fileName = null;\nlet mimeType = null;\nlet caption = msg.caption || null;\n\n// Photo\nif (msg.photo && msg.photo.length > 0) {\n  messageType = 'photo';\n\n  // Telegram sends several sizes. The last one is usually the largest.\n  const photo = msg.photo[msg.photo.length - 1];\n\n  fileId = photo.file_id;\n  fileUniqueId = photo.file_unique_id;\n  content = caption || '[photo]';\n}\n\n// Document / file\nelse if (msg.document) {\n  messageType = 'document';\n\n  fileId = msg.document.file_id;\n  fileUniqueId = msg.document.file_unique_id;\n  fileName = msg.document.file_name || null;\n  mimeType = msg.document.mime_type || null;\n  content = caption || fileName || '[document]';\n}\n\n// Video\nelse if (msg.video) {\n  messageType = 'video';\n\n  fileId = msg.video.file_id;\n  fileUniqueId = msg.video.file_unique_id;\n  fileName = msg.video.file_name || null;\n  mimeType = msg.video.mime_type || null;\n  content = caption || '[video]';\n}\n\n// Voice\nelse if (msg.voice) {\n  messageType = 'voice';\n\n  fileId = msg.voice.file_id;\n  fileUniqueId = msg.voice.file_unique_id;\n  mimeType = msg.voice.mime_type || null;\n  content = caption || '[voice message]';\n}\n\n// Audio\nelse if (msg.audio) {\n  messageType = 'audio';\n\n  fileId = msg.audio.file_id;\n  fileUniqueId = msg.audio.file_unique_id;\n  fileName = msg.audio.file_name || null;\n  mimeType = msg.audio.mime_type || null;\n  content = caption || fileName || '[audio]';\n}\n\n// Sticker\nelse if (msg.sticker) {\n  messageType = 'sticker';\n\n  fileId = msg.sticker.file_id;\n  fileUniqueId = msg.sticker.file_unique_id;\n  content = msg.sticker.emoji ? `[sticker ${msg.sticker.emoji}]` : '[sticker]';\n}\n\n// Fallback for unsupported message types\nif (!content && !fileId) {\n  content = '[unsupported message]';\n  messageType = 'unsupported';\n}\n\nreturn [\n  {\n    json: {\n      user_id: msg.from.id,\n      user_name: msg.from.first_name || '',\n      chat_id: msg.chat.id,\n      content,\n      message_type: messageType,\n      file_id: fileId,\n      file_unique_id: fileUniqueId,\n      file_name: fileName,\n      mime_type: mimeType,\n      caption\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        176,
+        448
+      ],
+      "id": "44bd8587-7a30-4590-8a94-cc683176bed7",
+      "name": "prepare message payload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot8521324041:AAGisZMzzlc0n8AyO1iau4HEzlU9v09akCg/' + $json.api_method }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        400,
+        -304
+      ],
+      "id": "45e991f5-66f1-4b86-9058-62a9000e2506",
+      "name": "send topic item",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nif (!input.callback_query) {\n  throw new Error('This node expects callback_query');\n}\n\nconst data = input.callback_query.data;\n// пример: download_msg:123\n\nconst messageId = Number(data.split(':')[1]);\n\nif (!messageId) {\n  throw new Error(`Invalid message id in callback data: ${data}`);\n}\n\nreturn [\n  {\n    json: {\n      user_id: input.callback_query.from.id,\n      chat_id: input.callback_query.message.chat.id,\n      message_id: messageId,\n      callback_query_id: input.callback_query.id\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        144
+      ],
+      "id": "f9b4d501-2507-478b-adbc-2f899992b507",
+      "name": "parse download message"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  m.id,\n  m.user_id,\n  m.topic_id,\n  m.content,\n  m.created_at,\n  m.message_type,\n  m.file_id,\n  m.file_unique_id,\n  m.file_name,\n  m.mime_type,\n  m.caption,\n  t.title AS topic_title,\n  {{ $json.chat_id }}::BIGINT AS chat_id,\n  '{{ $json.callback_query_id }}' AS callback_query_id\nFROM gnote.messages m\nJOIN gnote.topics t\n  ON t.id = m.topic_id\n AND t.user_id = m.user_id\nWHERE m.id = {{ $json.message_id }}\n  AND m.user_id = {{ $json.user_id }}\n  AND m.file_id IS NOT NULL\nLIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -32,
+        144
+      ],
+      "id": "0b337420-cf84-4fdf-ab7a-47d4d36fd3af",
+      "name": "get file message",
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nif (items.length === 0) {\n  return [\n    {\n      json: {\n        api_method: 'sendMessage',\n        body: {\n          chat_id: $('Telegram Trigger').first().json.callback_query.message.chat.id,\n          text: 'Файл не найден или у тебя нет доступа ⚠️'\n        }\n      }\n    }\n  ];\n}\n\nconst data = items[0].json;\n\nconst chatId = data.chat_id;\nconst messageType = data.message_type || 'document';\n\nconst caption =\n  data.caption ||\n  data.file_name ||\n  data.content ||\n  '';\n\nif (messageType === 'photo') {\n  const body = {\n    chat_id: chatId,\n    photo: data.file_id\n  };\n\n  if (data.caption) {\n    body.caption = data.caption;\n  }\n\n  return {\n    json: {\n      api_method: 'sendPhoto',\n      body\n    }\n  };\n}\n\nif (messageType === 'video') {\n  return [\n    {\n      json: {\n        api_method: 'sendVideo',\n        body: {\n          chat_id: chatId,\n          video: data.file_id,\n          caption\n        }\n      }\n    }\n  ];\n}\n\nif (messageType === 'voice') {\n  return [\n    {\n      json: {\n        api_method: 'sendVoice',\n        body: {\n          chat_id: chatId,\n          voice: data.file_id,\n          caption\n        }\n      }\n    }\n  ];\n}\n\nif (messageType === 'audio') {\n  return [\n    {\n      json: {\n        api_method: 'sendAudio',\n        body: {\n          chat_id: chatId,\n          audio: data.file_id,\n          caption\n        }\n      }\n    }\n  ];\n}\n\n// PDF, Word, Excel, обычный файл\nreturn [\n  {\n    json: {\n      api_method: 'sendDocument',\n      body: {\n        chat_id: chatId,\n        document: data.file_id,\n        caption\n      }\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        176,
+        144
+      ],
+      "id": "2f3f6f88-f541-435f-97f6-3fb94838ea84",
+      "name": "prepare file download"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot8521324041:AAGisZMzzlc0n8AyO1iau4HEzlU9v09akCg/' + $json.api_method }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        384,
+        144
+      ],
+      "id": "900d83a0-2520-4f67-8f04-d25ab56e3c44",
+      "name": "send file item"
     }
   ],
   "pinData": {},
@@ -610,6 +884,13 @@
         ],
         [
           {
+            "node": "parse get topic",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "parse selected topic",
             "type": "main",
             "index": 0
@@ -618,6 +899,20 @@
         [
           {
             "node": "get topics with counts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "parse download message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "get topics for reading",
             "type": "main",
             "index": 0
           }
@@ -684,7 +979,7 @@
       "main": [
         [
           {
-            "node": "add user/message",
+            "node": "prepare message payload",
             "type": "main",
             "index": 0
           }
@@ -763,6 +1058,105 @@
           }
         ]
       ]
+    },
+    "get topics for reading": {
+      "main": [
+        [
+          {
+            "node": "create get topics keyboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create get topics keyboard": {
+      "main": [
+        [
+          {
+            "node": "send get topics keyboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse get topic": {
+      "main": [
+        [
+          {
+            "node": "get messages by topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get messages by topic": {
+      "main": [
+        [
+          {
+            "node": "format topic messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format topic messages": {
+      "main": [
+        [
+          {
+            "node": "send topic item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "prepare message payload": {
+      "main": [
+        [
+          {
+            "node": "add user/message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse download message": {
+      "main": [
+        [
+          {
+            "node": "get file message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get file message": {
+      "main": [
+        [
+          {
+            "node": "prepare file download",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "prepare file download": {
+      "main": [
+        [
+          {
+            "node": "send file item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -771,7 +1165,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "daffee97-a253-472b-830c-8fbf79fcbc6c",
+  "versionId": "a0a852a5-6d3a-40bd-9ea8-e940012a97d8",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"

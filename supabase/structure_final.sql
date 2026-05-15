@@ -6539,7 +6539,15 @@ CREATE TABLE gnote.messages (
     content text NOT NULL,
     created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     user_id bigint NOT NULL,
-    topic_id bigint NOT NULL
+    topic_id bigint NOT NULL,
+    message_type text DEFAULT 'text'::text,
+    file_id text,
+    file_unique_id text,
+    file_name text,
+    mime_type text,
+    caption text,
+    telegram_file_path text,
+    file_url text
 );
 
 
@@ -6575,7 +6583,15 @@ CREATE TABLE gnote.pending_messages (
     id bigint NOT NULL,
     user_id bigint NOT NULL,
     message text NOT NULL,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    message_type text DEFAULT 'text'::text,
+    file_id text,
+    file_unique_id text,
+    file_name text,
+    mime_type text,
+    caption text,
+    telegram_file_path text,
+    file_url text
 );
 
 
