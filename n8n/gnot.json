@@ -13,7 +13,7 @@
       "typeVersion": 1.2,
       "position": [
         -832,
-        -48
+        48
       ],
       "id": "0f2fce92-e0b7-4242-8b04-2923765a4380",
       "name": "Telegram Trigger",
@@ -218,6 +218,56 @@
                 },
                 "conditions": [
                   {
+                    "id": "81795d7b-57e1-4684-9c77-59a58a7c7599",
+                    "leftValue": "={{ $json.message?.text === '/new' }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "new topic command"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "92d99f41-3535-465c-b860-f9a354843cdc",
+                    "leftValue": "={{ ['/start', '/help'].includes($json.message?.text || '') }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "help start"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
                     "id": "c92a3739-d532-4c3d-8830-5e4bb8be0ef2",
                     "leftValue": "={{ $json.message?.text === '/get' }}",
                     "rightValue": "",
@@ -274,14 +324,14 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO gnote.user_state (user_id, state)\nVALUES ({{ $json.callback_query.from.id }}, 'waiting_for_topic_name')\nON CONFLICT (user_id)\nDO UPDATE SET \n  state = 'waiting_for_topic_name',\n  created_at = NOW();",
+        "query": "INSERT INTO gnote.user_state (user_id, state)\nVALUES (\n  {{ $json.callback_query?.from?.id || $json.message?.from?.id }},\n  'waiting_for_topic_name'\n)\nON CONFLICT (user_id)\nDO UPDATE SET \n  state = 'waiting_for_topic_name',\n  created_at = NOW();",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        -192,
-        -448
+        -176,
+        -624
       ],
       "id": "689075fb-d3b2-4745-96a8-fdc804845aff",
       "name": "save state",
@@ -295,7 +345,7 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $('Telegram Trigger').item.json.callback_query.from.id }}",
+        "chatId": "={{ \n  $('Telegram Trigger').first().json.callback_query?.message?.chat?.id ||\n  $('Telegram Trigger').first().json.callback_query?.from?.id ||\n  $('Telegram Trigger').first().json.message?.chat?.id ||\n  $('Telegram Trigger').first().json.message?.from?.id\n}}",
         "text": "enter topic name ",
         "additionalFields": {
           "appendAttribution": false
@@ -304,8 +354,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        -16,
-        -448
+        0,
+        -624
       ],
       "id": "9f7fa80d-ff4f-44bd-998d-89ed83aaace6",
       "name": "enter topic name",
@@ -493,8 +543,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -192,
-        -176
+        -176,
+        -288
       ],
       "id": "02ba8071-70a7-4fb4-9c7a-44ecc271ae37",
       "name": "parse selected topic"
@@ -508,8 +558,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        -16,
-        -176
+        0,
+        -288
       ],
       "id": "e6b15751-a3bc-43d4-950e-f69d0f97e0db",
       "name": "move pending to messages",
@@ -553,7 +603,7 @@
       "typeVersion": 1.2,
       "position": [
         192,
-        -176
+        -288
       ],
       "id": "b1621a63-b2d7-4b32-a145-1db9881cc072",
       "name": "send save result",
@@ -573,8 +623,8 @@
       "type": "n8n-nodes-base.stickyNote",
       "typeVersion": 1,
       "position": [
-        -928,
-        -256
+        -896,
+        -176
       ],
       "id": "f1d19614-d7d4-41cb-92e8-b1c7d4e72bda",
       "name": "Sticky Note"
@@ -588,8 +638,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        -192,
-        -32
+        -176,
+        -160
       ],
       "id": "d974f535-b021-4da2-83cd-daabe9e15a24",
       "name": "get topics with counts",
@@ -608,8 +658,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -32,
-        -32
+        0,
+        -160
       ],
       "id": "e3ac8e5b-7bfe-4b6b-bce6-f8f643799668",
       "name": "format topics list"
@@ -625,8 +675,8 @@
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
       "position": [
-        208,
-        -32
+        192,
+        -160
       ],
       "id": "147b17fe-0bc0-4a54-b7b4-ed2d78c35486",
       "name": "send topics list",
@@ -697,8 +747,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -192,
-        -304
+        -176,
+        -448
       ],
       "id": "f25d1f83-d35f-4e6a-b167-805c196a43cb",
       "name": "parse get topic"
@@ -712,8 +762,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        -16,
-        -304
+        0,
+        -448
       ],
       "id": "be3f3e80-9f9d-44b7-9793-720f83b3a96f",
       "name": "get messages by topic",
@@ -726,13 +776,13 @@
     },
     {
       "parameters": {
-        "jsCode": "const items = $input.all();\n\nif (items.length === 0) {\n  return [\n    {\n      json: {\n        api_method: 'sendMessage',\n        body: {\n          chat_id: $('Telegram Trigger').first().json.callback_query.message.chat.id,\n          text: 'Топик не найден ⚠️'\n        }\n      }\n    }\n  ];\n}\n\nreturn items.map(item => {\n  const data = item.json;\n\n  const chatId = data.chat_id;\n  const messageType = data.message_type || 'text';\n\n  if (messageType === 'empty' || (!data.content && !data.file_id)) {\n    return {\n      json: {\n        api_method: 'sendMessage',\n        body: {\n          chat_id: chatId,\n          text: 'В этом топике пока нет сообщений 📭'\n        }\n      }\n    };\n  }\n\n  // Text message\n  if (messageType === 'text' || !data.file_id) {\n    return {\n      json: {\n        api_method: 'sendMessage',\n        body: {\n          chat_id: chatId,\n          text: data.content || ''\n        }\n      }\n    };\n  }\n\n  const displayName =\n    data.file_name ||\n    data.caption ||\n    data.content ||\n    `[${messageType}]`;\n\n  // Photo: show real photo preview + download button\n  if (messageType === 'photo') {\n    return {\n      json: {\n        api_method: 'sendPhoto',\n        body: {\n          chat_id: chatId,\n          photo: data.file_id,\n          caption: data.caption || '',\n          reply_markup: {\n            inline_keyboard: [\n              [\n                {\n                  text: 'download',\n                  callback_data: `download_msg:${data.id}`\n                }\n              ]\n            ]\n          }\n        }\n      }\n    };\n  }\n\n  // Any other file: show universal icon + file name, button only says \"download\"\n  return {\n    json: {\n      api_method: 'sendMessage',\n      body: {\n        chat_id: chatId,\n        text: `📎 ${displayName}`,\n        reply_markup: {\n          inline_keyboard: [\n            [\n              {\n                text: 'download',\n                callback_data: `download_msg:${data.id}`\n              }\n            ]\n          ]\n        }\n      }\n    }\n  };\n});"
+        "jsCode": "const items = $input.all();\n\nif (items.length === 0) {\n  return [\n    {\n      json: {\n        api_method: 'sendMessage',\n        body: {\n          chat_id: $('Telegram Trigger').first().json.callback_query.message.chat.id,\n          text: 'Топик не найден ⚠️'\n        }\n      }\n    }\n  ];\n}\n\nreturn items.map(item => {\n  const data = item.json;\n\n  const chatId = data.chat_id;\n  const messageType = data.message_type || 'text';\n\n  if (messageType === 'empty' || (!data.content && !data.file_id)) {\n    return {\n      json: {\n        api_method: 'sendMessage',\n        body: {\n          chat_id: chatId,\n          text: 'В этом топике пока нет сообщений 📭'\n        }\n      }\n    };\n  }\n\n  // Text message\n  if (messageType === 'text' || !data.file_id) {\n    return {\n      json: {\n        api_method: 'sendMessage',\n        body: {\n          chat_id: chatId,\n          text: data.content || ''\n        }\n      }\n    };\n  }\n\n  const displayName =\n    data.file_name ||\n    data.caption ||\n    data.content ||\n    `[${messageType}]`;\n\n  // Photo: show real photo preview + download button\nif (messageType === 'photo') {\n  const body = {\n    chat_id: chatId,\n    photo: data.file_id\n  };\n\n  if (data.caption) {\n    body.caption = data.caption;\n  }\n\n  return {\n    json: {\n      api_method: 'sendPhoto',\n      body\n    }\n  };\n}\n\n  // Any other file: show universal icon + file name, button only says \"download\"\n  return {\n    json: {\n      api_method: 'sendMessage',\n      body: {\n        chat_id: chatId,\n        text: `📎 ${displayName}`,\n        reply_markup: {\n          inline_keyboard: [\n            [\n              {\n                text: 'download',\n                callback_data: `download_msg:${data.id}`\n              }\n            ]\n          ]\n        }\n      }\n    }\n  };\n});"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         192,
-        -304
+        -448
       ],
       "id": "67c9cdbf-ffbd-4829-a827-c12899b68a21",
       "name": "format topic messages"
@@ -765,7 +815,7 @@
       "typeVersion": 4.4,
       "position": [
         400,
-        -304
+        -448
       ],
       "id": "45e991f5-66f1-4b86-9058-62a9000e2506",
       "name": "send topic item",
@@ -779,8 +829,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -240,
-        144
+        -160,
+        -16
       ],
       "id": "f9b4d501-2507-478b-adbc-2f899992b507",
       "name": "parse download message"
@@ -794,8 +844,8 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        -32,
-        144
+        0,
+        -16
       ],
       "id": "0b337420-cf84-4fdf-ab7a-47d4d36fd3af",
       "name": "get file message",
@@ -814,7 +864,7 @@
       "typeVersion": 2,
       "position": [
         176,
-        144
+        -16
       ],
       "id": "2f3f6f88-f541-435f-97f6-3fb94838ea84",
       "name": "prepare file download"
@@ -831,11 +881,48 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        384,
-        144
+        368,
+        -16
       ],
       "id": "900d83a0-2520-4f67-8f04-d25ab56e3c44",
       "name": "send file item"
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $('Telegram Trigger').first().json.message;\n\nreturn [\n  {\n    json: {\n      chat_id: msg.chat.id,\n      text:\n`I can help you save and manage notes, files and photos by topics.\n\nYou can control me by sending these commands:\n\n/get - choose a topic and show saved messages\n/topics - show all topics with message counts\n/new - create a new topic\n/help - show this help menu\n\nHow it works:\nSend me any text, photo or file.\nThen choose an existing topic or create a new one.`\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        160
+      ],
+      "id": "e357d560-6d68-492f-b06f-8d74bf48618c",
+      "name": "create help text"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        48,
+        160
+      ],
+      "id": "26d58c4f-a0a0-4f57-a4c6-ff2a9c64b3da",
+      "name": "send help text",
+      "webhookId": "f52f3960-ddfa-4059-961a-46dafcce3b42",
+      "credentials": {
+        "telegramApi": {
+          "id": "L6tMdX179iCyx0Bk",
+          "name": "Telegram account"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -906,6 +993,20 @@
         [
           {
             "node": "parse download message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "save state",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "create help text",
             "type": "main",
             "index": 0
           }
@@ -1157,6 +1258,17 @@
           }
         ]
       ]
+    },
+    "create help text": {
+      "main": [
+        [
+          {
+            "node": "send help text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -1165,7 +1277,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "a0a852a5-6d3a-40bd-9ea8-e940012a97d8",
+  "versionId": "6b570730-0758-43f3-b80e-2221e6ce1d5e",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"
