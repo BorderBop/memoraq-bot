@@ -1,0 +1,579 @@
+{
+  "name": "gnot",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -832,
+        -48
+      ],
+      "id": "0f2fce92-e0b7-4242-8b04-2923765a4380",
+      "name": "Telegram Trigger",
+      "webhookId": "0f710f99-a5d5-4451-8c1d-216b54d2e883",
+      "credentials": {
+        "telegramApi": {
+          "id": "L6tMdX179iCyx0Bk",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, title\nFROM gnote.topics\nWHERE user_id = {{ $json.user_id }};",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        416,
+        192
+      ],
+      "id": "c5b885d1-fa93-43c3-92f1-c82fb3499029",
+      "name": "get topics",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Получаем данные из Postgres\nconst items = $input.all();\n\nconst buttons = items.map(item => ({\n  text: `📁 ${item.json.title}`,\n  callback_data: `select_topic:${item.json.id}`\n}));\n\n// Кнопка создания нового\nbuttons.push({\n  text: '➕ Создать новый топик',\n  callback_data: 'action:create_new'\n});\n\n// Группируем по 2 в ряд\nconst rows = [];\nwhile (buttons.length) {\n  rows.push(buttons.splice(0, 2));\n}\n\n\nreturn [\n  {\n    json: {\n      chat_id: $('Telegram Trigger').first().json.message.from.id,\n      inline_keyboard: rows\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        192
+      ],
+      "id": "f22194d3-4331-4532-b5bc-7a06576a6759",
+      "name": "create inline keyboard",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot8521324041:AAGisZMzzlc0n8AyO1iau4HEzlU9v09akCg/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  chat_id: $json.chat_id,\n  text: \"topic ?\",\n  reply_markup: {\n    inline_keyboard: $json.inline_keyboard\n  }\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        736,
+        192
+      ],
+      "id": "ab98d5f5-7696-4413-adae-c58cb7720113",
+      "name": "Send Keyboard"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.callback_query?.data === 'action:create_new' }}",
+                    "rightValue": "'action:create_new'",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "id": "3a9df2dc-cce0-4feb-8fa0-8ad235fe5368"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "create topic"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "1837ddf9-8951-4d22-8236-3d82c47fd573",
+                    "leftValue": "={{ $json.callback_query?.data?.startsWith('select_topic') || false }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "select topic"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "177277ad-2b65-4b4a-b062-20ee69fb92c0",
+                    "leftValue": "={{ $json.message?.text !== undefined }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": "={{ true }}",
+              "outputKey": "get message"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -608,
+        -64
+      ],
+      "id": "1cebc024-790b-4293-9406-19a64ccd7a04",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.callback_query.from.id }}",
+        "text": "=selected topic {{ $json.callback_query.message.reply_markup.inline_keyboard[0][0].text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        160,
+        -160
+      ],
+      "id": "de92902d-f7b0-4320-870b-ae9eeff5287d",
+      "name": "Send a text <select..>",
+      "webhookId": "075ed049-448a-4414-a088-e13ae4b05ed8",
+      "credentials": {
+        "telegramApi": {
+          "id": "L6tMdX179iCyx0Bk",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO gnote.user_state (user_id, state)\nVALUES ({{ $json.callback_query.from.id }}, 'waiting_for_topic_name')\nON CONFLICT (user_id)\nDO UPDATE SET \n  state = 'waiting_for_topic_name',\n  created_at = NOW();",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -256,
+        -336
+      ],
+      "id": "689075fb-d3b2-4745-96a8-fdc804845aff",
+      "name": "save state",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.callback_query.from.id }}",
+        "text": "enter topic name ",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -64,
+        -336
+      ],
+      "id": "9f7fa80d-ff4f-44bd-998d-89ed83aaace6",
+      "name": "enter topic name",
+      "webhookId": "6fecc998-b526-4139-bd3a-83b659d9db09",
+      "credentials": {
+        "telegramApi": {
+          "id": "L6tMdX179iCyx0Bk",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT state, created_at\nFROM gnote.user_state\nWHERE user_id = {{ $json.message.from.id }}\nLIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -448,
+        112
+      ],
+      "id": "eee43de4-972c-4075-8225-d22c61d5a69a",
+      "name": "get user state",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "=topic name -  {{ $('Telegram Trigger').item.json.message.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        416,
+        336
+      ],
+      "id": "a3f5060c-2e22-48b6-ba49-ed08838da2f8",
+      "name": "topic name",
+      "webhookId": "6fecc998-b526-4139-bd3a-83b659d9db09",
+      "credentials": {
+        "telegramApi": {
+          "id": "L6tMdX179iCyx0Bk",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH new_topic AS (\n  INSERT INTO gnote.topics (title, user_id)\n  VALUES (\n    '{{ $(\"Telegram Trigger\").item.json.message.text.replace(/'/g, \"''\") }}',\n    {{ $(\"Telegram Trigger\").item.json.message.from.id }}\n  )\n  ON CONFLICT DO NOTHING\n  RETURNING id, title, user_id\n),\nclear_state AS (\n  DELETE FROM gnote.user_state\n  WHERE user_id = {{ $(\"Telegram Trigger\").item.json.message.from.id }}\n)\nSELECT *\nFROM new_topic;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        256,
+        336
+      ],
+      "id": "cd93cc94-24c7-4888-93c7-12cb045baa96",
+      "name": "create topic",
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH upsert_user AS (\n  INSERT INTO gnote.users (\n    id,\n    name,\n    first_visit,\n    last_visit,\n    all_messages\n  )\n  VALUES (\n    {{ $(\"Telegram Trigger\").item.json.message.from.id }},\n    '{{ $(\"Telegram Trigger\").item.json.message.from.first_name.replace(/'/g, \"''\") }}',\n    NOW(),\n    NOW(),\n    1\n  )\n  ON CONFLICT (id)\n  DO UPDATE SET\n    name = EXCLUDED.name,\n    last_visit = NOW(),\n    all_messages = COALESCE(gnote.users.all_messages, 0) + 1\n  RETURNING id\n),\ninsert_pending AS (\n  INSERT INTO gnote.pending_messages (\n    user_id,\n    message,\n    created_at\n  )\n  VALUES (\n    {{ $(\"Telegram Trigger\").item.json.message.from.id }},\n    '{{ $(\"Telegram Trigger\").item.json.message.text.replace(/'/g, \"''\") }}',\n    NOW()\n  )\n  RETURNING id, user_id, message, created_at\n)\nSELECT *\nFROM insert_pending;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        256,
+        192
+      ],
+      "id": "df0df0e8-fc5c-4164-b015-b3340f902d8a",
+      "name": "add user/message",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.state }}",
+                    "rightValue": "no_state",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "df55f900-0a80-43cf-a07f-3694e29e72d4"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "handle message"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "d54ed3e3-f484-4801-9691-1d1091f69a6f",
+                    "leftValue": "={{ $json.state }}",
+                    "rightValue": "waiting_for_topic_name",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "handle status"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -32,
+        224
+      ],
+      "id": "77e93e5d-d90c-480c-bcae-a56e75981a0b",
+      "name": "switch state"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nconst state = input.state\n  ? String(input.state).trim()\n  : 'no_state';\n\nreturn [\n  {\n    json: {\n      ...input,\n      state\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        224
+      ],
+      "id": "7ebdcec1-366d-4b18-a950-6e0f04bceb3c",
+      "name": "normalize state",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nif (!input.callback_query) {\n  throw new Error('This node expects callback_query, but received message');\n}\n\nconst data = input.callback_query.data;\n// пример: select_topic:18\n\nconst topicId = Number(data.split(':')[1]);\nconst userId = input.callback_query.from.id;\n\nreturn [\n  {\n    json: {\n      user_id: userId,\n      topic_id: topicId,\n      callback_query_id: input.callback_query.id,\n      chat_id: input.callback_query.from.id\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -400,
+        -64
+      ],
+      "id": "02ba8071-70a7-4fb4-9c7a-44ecc271ae37",
+      "name": "parse selected topic"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get topics": {
+      "main": [
+        [
+          {
+            "node": "create inline keyboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create inline keyboard": {
+      "main": [
+        [
+          {
+            "node": "Send Keyboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "save state",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "parse selected topic",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "get user state",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "save state": {
+      "main": [
+        [
+          {
+            "node": "enter topic name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get user state": {
+      "main": [
+        [
+          {
+            "node": "normalize state",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "topic name": {
+      "main": [
+        []
+      ]
+    },
+    "create topic": {
+      "main": [
+        [
+          {
+            "node": "topic name",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "add user/message": {
+      "main": [
+        [
+          {
+            "node": "get topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "switch state": {
+      "main": [
+        [
+          {
+            "node": "add user/message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "create topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "normalize state": {
+      "main": [
+        [
+          {
+            "node": "switch state",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "9dd6ef68-7359-42f8-b2e8-81479dc2ca55",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"
+  },
+  "id": "E_WY5SaORG0ob7TMzFNUp",
+  "tags": []
+}
