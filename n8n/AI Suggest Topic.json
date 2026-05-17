@@ -1,0 +1,176 @@
+{
+  "name": "AI Suggest Topic",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -112,
+        176
+      ],
+      "id": "2eda554c-417f-4345-a58d-d3ea93ec6688",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  id,\n  title\nFROM gnote.topics\nWHERE user_id = {{ $json.user_id }}\n  AND LOWER(title) <> 'deleted messages'\nORDER BY title ASC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        96,
+        176
+      ],
+      "id": "62e4dc76-5f7f-4c75-a6a0-52ac362317c6",
+      "name": "get user topics for AI",
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $('When Executed by Another Workflow').first().json;\n\nconst topics = $input.all()\n  .filter(item => item.json.id && item.json.title)\n  .map(item => ({\n    id: item.json.id,\n    title: item.json.title\n  }));\n\nconst messageType = input.message_type || 'text';\n\nconst parts = [];\n\nif (input.content) {\n  parts.push(`Content: ${input.content}`);\n}\n\nif (input.caption) {\n  parts.push(`Caption: ${input.caption}`);\n}\n\nif (input.file_name) {\n  parts.push(`File name: ${input.file_name}`);\n}\n\nif (input.mime_type) {\n  parts.push(`MIME type: ${input.mime_type}`);\n}\n\nif (parts.length === 0) {\n  parts.push(`Message type: ${messageType}`);\n}\n\nconst messageForAI = parts.join('\\n');\n\nreturn [\n  {\n    json: {\n      user_id: input.user_id,\n      chat_id: input.chat_id,\n      message_type: messageType,\n      message_for_ai: messageForAI,\n      topics\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        176
+      ],
+      "id": "ecabb2ce-6d81-4de8-9ec4-8418f9ddf3bb",
+      "name": "prepare AI prompt"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You classify a Telegram message into a useful topic.\n\nReturn only valid JSON. Do not use markdown. Do not wrap the answer in ```json.\n\nMessage:\n{{ $json.message_for_ai }}\n\nMessage type:\n{{ $json.message_type }}\n\nExisting topics:\n{{ JSON.stringify($json.topics) }}\n\nRules:\n1. If an existing topic clearly fits, choose action: \"use_existing\".\n2. If there are no topics, choose action: \"create_new\".\n3. If no existing topic clearly fits, choose action: \"create_new\".\n4. If action is \"use_existing\", use only topic id and title from the provided list.\n5. If action is \"create_new\", suggest a short clear English topic title.\n6. Do not suggest \"Deleted messages\".\n7. Topic title should be 1-4 words.\n8. confidence must be between 0 and 1.\n9. reason must be short and user-friendly.\n10. Return only JSON.\n\nReturn exactly this structure:\n{\n  \"action\": \"use_existing\",\n  \"suggested_topic_id\": 123,\n  \"suggested_topic_title\": \"Topic name\",\n  \"new_topic_title\": null,\n  \"confidence\": 0.85,\n  \"reason\": \"Short reason\"\n}\n\nOr this structure:\n{\n  \"action\": \"create_new\",\n  \"suggested_topic_id\": null,\n  \"suggested_topic_title\": null,\n  \"new_topic_title\": \"New topic name\",\n  \"confidence\": 0.85,\n  \"reason\": \"Short reason\"\n}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "=You are a topic classification assistant. Always return only valid JSON."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        512,
+        176
+      ],
+      "id": "d3bf24ff-3874-40b7-8f27-978c22a1962d",
+      "name": "AI classify topic"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        512,
+        384
+      ],
+      "id": "a5385cd2-5e29-46d3-a96e-da2252ac420f",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "9bevO9NORDAKzO7X",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $('prepare AI prompt').first().json;\n\n// Try to read Gemini / LLM Chain output from common n8n fields\nlet raw =\n  $json.text ||\n  $json.output ||\n  $json.response ||\n  $json.message ||\n  $json.content ||\n  $json.chatInput ||\n  '';\n\n// Sometimes output can be an object\nif (typeof raw !== 'string') {\n  raw = JSON.stringify(raw);\n}\n\n// Remove possible markdown fences if Gemini returns ```json ... ```\nraw = raw\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/```$/i, '')\n  .trim();\n\nlet ai;\n\ntry {\n  ai = JSON.parse(raw);\n} catch (e) {\n  ai = {\n    action: 'create_new',\n    suggested_topic_id: null,\n    suggested_topic_title: null,\n    new_topic_title: 'New Notes',\n    confidence: 0,\n    reason: 'I could not confidently classify this message.'\n  };\n}\n\nconst topics = original.topics || [];\nconst confidence = Number(ai.confidence || 0);\nconst action = ai.action;\n\nfunction cleanTopicTitle(title) {\n  return String(title || '')\n    .replace(/[^\\p{L}\\p{N}\\s&/-]/gu, '')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, 40);\n}\n\n// Case 1: AI suggests an existing topic\nif (action === 'use_existing') {\n  const topicId = ai.suggested_topic_id ? Number(ai.suggested_topic_id) : null;\n  const matchedTopic = topics.find(t => Number(t.id) === topicId);\n\n  if (topicId && matchedTopic && confidence >= 0.55) {\n    const topicTitle = matchedTopic.title;\n    const reason = ai.reason || 'This looks like the closest matching topic.';\n\n    return [\n      {\n        json: {\n          chat_id: original.chat_id,\n          text:\n`Suggested topic:\n\n📁 ${topicTitle}\n\nReason: ${reason}`,\n          inline_keyboard: [\n            [\n              {\n                text: `✅ Save to ${topicTitle}`,\n                callback_data: `select_topic:${topicId}`\n              }\n            ],\n            [\n              {\n                text: '📁 Choose another topic',\n                callback_data: 'action:choose_topic'\n              }\n            ],\n            [\n              {\n                text: '➕ Create new topic',\n                callback_data: 'action:create_new'\n              }\n            ]\n          ]\n        }\n      }\n    ];\n  }\n}\n\n// Case 2: AI suggests a new topic\nlet newTopicTitle = cleanTopicTitle(ai.new_topic_title);\n\nif (!newTopicTitle) {\n  newTopicTitle = 'New Notes';\n}\n\nconst reason = ai.reason || 'This would be a useful new topic for this message.';\n\nreturn [\n  {\n    json: {\n      chat_id: original.chat_id,\n      text:\n`Suggested new topic:\n\n📁 ${newTopicTitle}\n\nReason: ${reason}\n\nCreate this topic and save the message here?`,\n      inline_keyboard: [\n        [\n          {\n            text: `✅ Create \"${newTopicTitle}\"`,\n            callback_data: `ai_create_topic:${encodeURIComponent(newTopicTitle)}`\n          }\n        ],\n        [\n          {\n            text: '📁 Choose existing topic',\n            callback_data: 'action:choose_topic'\n          }\n        ],\n        [\n          {\n            text: '➕ Create manually',\n            callback_data: 'action:create_new'\n          }\n        ]\n      ]\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        176
+      ],
+      "id": "4011bf98-6efe-4a12-b882-825734ceba40",
+      "name": "build AI topic keyboard"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "get user topics for AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get user topics for AI": {
+      "main": [
+        [
+          {
+            "node": "prepare AI prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "prepare AI prompt": {
+      "main": [
+        [
+          {
+            "node": "AI classify topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI classify topic",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI classify topic": {
+      "main": [
+        [
+          {
+            "node": "build AI topic keyboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "9be9c1fb-0012-43df-bd53-caeb27bb3f94",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"
+  },
+  "id": "X5Wj5lUa4CLTFzJL",
+  "tags": []
+}
