@@ -28,7 +28,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT id, title\nFROM gnote.topics\nWHERE user_id = {{ $json.user_id }};",
+        "query": "SELECT id, title\nFROM gnote.topics\nWHERE user_id = {{ $json.user_id }}\n  AND LOWER(title) <> 'deleted messages'\nORDER BY title ASC;",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
@@ -49,7 +49,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Получаем данные из Postgres\nconst items = $input.all();\n\nconst buttons = items.map(item => ({\n  text: `📁 ${item.json.title}`,\n  callback_data: `select_topic:${item.json.id}`\n}));\n\n// Кнопка создания нового\nbuttons.push({\n  text: '➕ Create new topic',\n  callback_data: 'action:create_new'\n});\n\n// Группируем по 2 в ряд\nconst rows = [];\nwhile (buttons.length) {\n  rows.push(buttons.splice(0, 2));\n}\n\n\nreturn [\n  {\n    json: {\n      chat_id: $('Telegram Trigger').first().json.message.from.id,\n      inline_keyboard: rows\n    }\n  }\n];"
+        "jsCode": "const items = $input.all();\n\n// Берем chat_id из parse choose topic\nconst parsed = $('parse choose topic').first().json;\n\nconst chatId = parsed.chat_id;\nconst userId = parsed.user_id;\n\n// Создаем кнопки топиков\nconst buttons = items\n  .filter(item => item.json.id && item.json.title)\n  .map(item => ({\n    text: `📁 ${item.json.title}`,\n    callback_data: `select_topic:${item.json.id}`\n  }));\n\n// Кнопка создания нового топика\nbuttons.push({\n  text: '➕ Create new topic',\n  callback_data: 'action:create_new'\n});\n\n// Группируем по 2 кнопки в ряд\nconst rows = [];\nwhile (buttons.length) {\n  rows.push(buttons.splice(0, 2));\n}\n\nreturn [\n  {\n    json: {\n      user_id: userId,\n      chat_id: chatId,\n      text: 'Choose a topic:',\n      inline_keyboard: rows\n    }\n  }\n];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -819,7 +819,7 @@
     {
       "parameters": {
         "chatId": "={{ $json.chat_id }}",
-        "text": "==={{ \n  $json.saved_count > 0\n    ? \"Saved ✅\\n\\nTopic: \" + $json.topic_title + \"\\nSaved messages: \" + $json.saved_count + \"\\nTotal messages: \" + $json.user_all_messages\n    : \"There are no messages to save ⚠️\"\n}}",
+        "text": "={{ \n  $json.saved_count > 0\n    ? \"Saved ✅\\n\\nTopic: \" + $json.topic_title + \"\\nSaved messages: \" + $json.saved_count + \"\\nTotal messages: \" + $json.user_all_messages\n    : \"There are no messages to save ⚠️\"\n}}",
         "additionalFields": {
           "appendAttribution": false
         }
@@ -1641,6 +1641,19 @@
           "name": "Telegram account"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nif (!input.callback_query) {\n  throw new Error('This node expects callback_query');\n}\n\nreturn [\n  {\n    json: {\n      user_id: input.callback_query.from.id,\n      chat_id: input.callback_query.message.chat.id,\n      callback_query_id: input.callback_query.id\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        256
+      ],
+      "id": "726a652a-5e68-48ba-93a4-0276294c2ba5",
+      "name": "parse choose topic"
     }
   ],
   "pinData": {},
@@ -1752,7 +1765,7 @@
         ],
         [
           {
-            "node": "get topics",
+            "node": "parse choose topic",
             "type": "main",
             "index": 0
           }
@@ -2248,6 +2261,17 @@
           }
         ]
       ]
+    },
+    "parse choose topic": {
+      "main": [
+        [
+          {
+            "node": "get topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -2256,7 +2280,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "a578b0b4-8d9b-4069-a247-0277c013f7fb",
+  "versionId": "d0607a7f-0d90-4978-bd47-237fa4d56e90",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"
