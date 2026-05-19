@@ -1,0 +1,356 @@
+{
+  "name": "Analyze Telegram File",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -992,
+        -64
+      ],
+      "id": "8e96a64f-ceff-454b-b63a-769fabdfc053",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nconst messageType = input.message_type || 'text';\nconst hasFile = Boolean(input.file_id);\n\nconst supportedMessageTypes = ['photo', 'document'];\n\nconst shouldAnalyze =\n  hasFile &&\n  supportedMessageTypes.includes(messageType);\n\nreturn [\n  {\n    json: {\n      ...input,\n      should_analyze_file: shouldAnalyze\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -784,
+        -64
+      ],
+      "id": "d21bbec2-d32f-4f92-9bd7-5cff70173019",
+      "name": "Decide file analysis"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "17efc810-aa11-44b1-a1f1-a044cec675a3",
+              "leftValue": "={{ $json.should_analyze_file === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -576,
+        -64
+      ],
+      "id": "3a09f606-ebe9-49df-a90c-7d02b2dfb060",
+      "name": "IF should analyze file"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nreturn [\n  {\n    json: {\n      ...input,\n      file_analysis_status: 'not_needed',\n      file_analysis_text: null,\n      file_analysis_json: null\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        32
+      ],
+      "id": "063aae3d-e241-4f0f-b9c3-22fba89eddb0",
+      "name": "Return no file analysis"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.telegram.org/bot' + $env.TELEGRAM_BOT_TOKEN + '/getFile?file_id=' + $json.file_id }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -368,
+        -160
+      ],
+      "id": "283d9c1b-d3eb-4660-bf45-153286ffde5a",
+      "name": "Telegram getFile"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.telegram.org/file/bot' + $env.TELEGRAM_BOT_TOKEN + '/' + $json.result.file_path }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -160,
+        -160
+      ],
+      "id": "ad7ac01a-d9ee-460d-b6c9-c750a016acba",
+      "name": "Download Telegram file"
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $('Decide file analysis').first().json;\nconst getFile = $('Telegram getFile').first().json;\n\nconst item = $input.first();\nconst binaryMeta = item.binary?.data;\n\nif (!binaryMeta) {\n  return [\n    {\n      json: {\n        ...original,\n        file_analysis_status: 'failed',\n        file_analysis_text: 'File was received, but binary metadata was not available for AI analysis.',\n        file_analysis_json: {\n          summary: null,\n          detected_type: original.message_type || null,\n          language: null,\n          visible_or_extracted_text: null,\n          keywords: [],\n          important_details: [],\n          suggested_topics: [],\n          confidence: 0,\n          error: 'No binary.data metadata found'\n        },\n        skip_gemini_analysis: true\n      }\n    }\n  ];\n}\n\n// IMPORTANT:\n// In n8n binary mode, binary.data.data may contain \"filesystem-v2...\" instead of real base64.\n// So we must read the real binary buffer and convert it to base64 ourselves.\nlet fileBase64;\n\ntry {\n  const buffer = await this.helpers.getBinaryDataBuffer(0, 'data');\n  fileBase64 = buffer.toString('base64');\n} catch (error) {\n  return [\n    {\n      json: {\n        ...original,\n        file_analysis_status: 'failed',\n        file_analysis_text: 'File was received, but n8n could not read the binary buffer for AI analysis.',\n        file_analysis_json: {\n          summary: null,\n          detected_type: original.message_type || null,\n          language: null,\n          visible_or_extracted_text: null,\n          keywords: [],\n          important_details: [],\n          suggested_topics: [],\n          confidence: 0,\n          error: error.message\n        },\n        skip_gemini_analysis: true\n      }\n    }\n  ];\n}\n\nconst messageType = original.message_type || 'document';\n\nfunction detectMimeType(messageType, original, binaryMeta, getFile) {\n  const fileName = String(\n    original.file_name ||\n    binaryMeta?.fileName ||\n    getFile?.result?.file_path ||\n    ''\n  ).toLowerCase();\n\n  const telegramPath = String(getFile?.result?.file_path || '').toLowerCase();\n\n  // Telegram photos often come without correct MIME type.\n  // If message_type is photo, force image MIME.\n  if (messageType === 'photo') {\n    if (fileName.endsWith('.png') || telegramPath.endsWith('.png')) {\n      return 'image/png';\n    }\n\n    if (fileName.endsWith('.webp') || telegramPath.endsWith('.webp')) {\n      return 'image/webp';\n    }\n\n    return 'image/jpeg';\n  }\n\n  const originalMime = original.mime_type || '';\n  const binaryMime = binaryMeta?.mimeType || '';\n\n  // Ignore generic MIME type if we can detect a better one from extension.\n  const candidateMime =\n    originalMime && originalMime !== 'application/octet-stream'\n      ? originalMime\n      : binaryMime && binaryMime !== 'application/octet-stream'\n        ? binaryMime\n        : '';\n\n  if (candidateMime) {\n    return candidateMime;\n  }\n\n  if (fileName.endsWith('.pdf') || telegramPath.endsWith('.pdf')) {\n    return 'application/pdf';\n  }\n\n  if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg') || telegramPath.endsWith('.jpg') || telegramPath.endsWith('.jpeg')) {\n    return 'image/jpeg';\n  }\n\n  if (fileName.endsWith('.png') || telegramPath.endsWith('.png')) {\n    return 'image/png';\n  }\n\n  if (fileName.endsWith('.webp') || telegramPath.endsWith('.webp')) {\n    return 'image/webp';\n  }\n\n  if (fileName.endsWith('.txt')) {\n    return 'text/plain';\n  }\n\n  if (fileName.endsWith('.csv')) {\n    return 'text/csv';\n  }\n\n  if (fileName.endsWith('.json')) {\n    return 'application/json';\n  }\n\n  return 'application/octet-stream';\n}\n\nconst mimeType = detectMimeType(messageType, original, binaryMeta, getFile);\n\nconst fileName =\n  original.file_name ||\n  binaryMeta.fileName ||\n  getFile?.result?.file_path ||\n  'telegram_file';\n\nconst caption = original.caption || '';\nconst content = original.content || original.message || '';\n\nconst supportedMimeTypes = [\n  'image/jpeg',\n  'image/png',\n  'image/webp',\n  'image/heic',\n  'image/heif',\n  'application/pdf',\n  'text/plain',\n  'text/csv',\n  'application/json',\n  'text/markdown',\n  'text/html',\n  'application/xml',\n  'text/xml'\n];\n\nconst isSupported =\n  messageType === 'photo' ||\n  supportedMimeTypes.includes(mimeType);\n\nif (!isSupported) {\n  return [\n    {\n      json: {\n        ...original,\n        file_name: fileName,\n        mime_type: mimeType,\n        telegram_file_path: getFile?.result?.file_path || null,\n        file_analysis_status: 'unsupported',\n        file_analysis_text:\n          `File received but not deeply analyzed. ` +\n          `Unsupported MIME type for direct Gemini analysis: ${mimeType}. ` +\n          `File name: ${fileName}. ` +\n          (caption ? `Caption: ${caption}.` : ''),\n        file_analysis_json: {\n          summary: null,\n          detected_type: messageType,\n          language: null,\n          visible_or_extracted_text: null,\n          keywords: [],\n          important_details: [],\n          suggested_topics: [],\n          confidence: 0.2,\n          error: `Unsupported MIME type: ${mimeType}`\n        },\n        skip_gemini_analysis: true\n      }\n    }\n  ];\n}\n\nconst prompt = `\nYou analyze a Telegram user file for a personal memory and notes bot called Memoraq.\n\nReturn only valid JSON.\nDo not use markdown.\nDo not wrap the response in code fences.\n\nAnalyze the file and extract useful information for later search, topic classification, and memory retrieval.\n\nTelegram metadata:\n- Message type: ${messageType}\n- File name: ${fileName}\n- MIME type: ${mimeType}\n- Caption: ${caption || '[no caption]'}\n- Existing text/content: ${content || '[no text]'}\n\nFor photos:\n- Describe what is visible.\n- Do not identify real people by name.\n- If it looks like a receipt, document, product, place, screenshot, certificate, food, travel photo, or work-related image, say so.\n- Extract visible text if possible.\n\nFor PDFs and text documents:\n- Summarize the main content.\n- Extract organizations, dates, amounts, document type, and important keywords if present.\n- If it looks like a CV/resume, invoice, agreement, bank/tax document, report, sales file, legal document, medical document, or travel document, classify it.\n\nReturn exactly this JSON structure:\n{\n  \"summary\": \"Short useful summary in English, 1-3 sentences\",\n  \"detected_type\": \"photo | receipt | invoice | contract | resume | report | legal_document | tax_document | bank_document | travel_document | screenshot | product | place | text_document | pdf_document | other\",\n  \"language\": \"detected language or null\",\n  \"visible_or_extracted_text\": \"important visible/extracted text or null\",\n  \"keywords\": [\"keyword1\", \"keyword2\", \"keyword3\"],\n  \"important_details\": [\n    {\n      \"label\": \"date | amount | company | person | location | document_number | other\",\n      \"value\": \"detail value\"\n    }\n  ],\n  \"suggested_topics\": [\"Topic 1\", \"Topic 2\"],\n  \"confidence\": 0.85\n}\n`.trim();\n\nconst requestBody = {\n  contents: [\n    {\n      parts: [\n        {\n          text: prompt\n        },\n        {\n          inline_data: {\n            mime_type: mimeType,\n            data: fileBase64\n          }\n        }\n      ]\n    }\n  ],\n  generationConfig: {\n    temperature: 0.2,\n    responseMimeType: 'application/json'\n  }\n};\n\nreturn [\n  {\n    json: {\n      ...original,\n      file_name: fileName,\n      mime_type: mimeType,\n      telegram_file_path: getFile?.result?.file_path || null,\n      gemini_request_body: requestBody,\n      skip_gemini_analysis: false\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        48,
+        -160
+      ],
+      "id": "647113ee-9dfe-48c2-a6f6-c6036a0a6573",
+      "name": "Prepare Gemini file request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5e56cc4f-6ecb-4e57-884b-848940c85e42",
+              "leftValue": "={{ $json.skip_gemini_analysis === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        256,
+        -160
+      ],
+      "id": "d544ec5f-3b00-4aaa-84ec-1f7883b3fab9",
+      "name": "IF skip Gemini analysis"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nconst clean = { ...input };\n\ndelete clean.gemini_request_body;\ndelete clean.skip_gemini_analysis;\n\nreturn [\n  {\n    json: clean\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        -256
+      ],
+      "id": "d526810b-b4f7-4ef1-8d4e-42df2b4be39d",
+      "name": "Return unsupported file analysis"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "=json",
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "jsonBody": "={{ $json.gemini_request_body }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        464,
+        -64
+      ],
+      "id": "e71ebdbf-d8a9-402c-ae3e-e9d97c1ae72d",
+      "name": "Gemini analyze file",
+      "retryOnFail": true,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "9bevO9NORDAKzO7X",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $('Prepare Gemini file request').first().json;\nconst response = $input.first().json;\n\nlet raw = '';\n\ntry {\n  raw =\n    response.candidates?.[0]?.content?.parts\n      ?.map(part => part.text || '')\n      .join('\\n')\n      .trim() || '';\n} catch (e) {\n  raw = '';\n}\n\nraw = raw\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/```$/i, '')\n  .trim();\n\nlet parsed;\n\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  parsed = {\n    summary: raw || 'The file was analyzed, but the response could not be parsed as JSON.',\n    detected_type: original.message_type || 'other',\n    language: null,\n    visible_or_extracted_text: null,\n    keywords: [],\n    important_details: [],\n    suggested_topics: [],\n    confidence: 0.3,\n    parse_error: e.message\n  };\n}\n\nconst keywords = Array.isArray(parsed.keywords)\n  ? parsed.keywords.filter(Boolean).slice(0, 12)\n  : [];\n\nconst importantDetails = Array.isArray(parsed.important_details)\n  ? parsed.important_details.slice(0, 12)\n  : [];\n\nconst suggestedTopics = Array.isArray(parsed.suggested_topics)\n  ? parsed.suggested_topics.filter(Boolean).slice(0, 5)\n  : [];\n\nconst summary = parsed.summary || '';\nconst detectedType = parsed.detected_type || original.message_type || 'other';\nconst language = parsed.language || null;\nconst extractedText = parsed.visible_or_extracted_text || null;\nconst confidence = Number(parsed.confidence || 0);\n\nconst detailsText = importantDetails\n  .map(d => {\n    if (!d) return null;\n    const label = d.label || 'detail';\n    const value = d.value || '';\n    return value ? `${label}: ${value}` : null;\n  })\n  .filter(Boolean)\n  .join('; ');\n\nconst fileAnalysisText = [\n  `AI file analysis:`,\n  summary ? `Summary: ${summary}` : null,\n  detectedType ? `Detected type: ${detectedType}` : null,\n  language ? `Language: ${language}` : null,\n  extractedText ? `Extracted/visible text: ${String(extractedText).slice(0, 1500)}` : null,\n  keywords.length ? `Keywords: ${keywords.join(', ')}` : null,\n  detailsText ? `Important details: ${detailsText}` : null,\n  suggestedTopics.length ? `Suggested topics from file: ${suggestedTopics.join(', ')}` : null,\n  `Confidence: ${confidence}`\n]\n  .filter(Boolean)\n  .join('\\n');\n\nconst clean = {\n  ...original,\n\n  file_analysis_status: 'done',\n  file_analysis_text: fileAnalysisText,\n  file_analysis_json: {\n    summary,\n    detected_type: detectedType,\n    language,\n    visible_or_extracted_text: extractedText,\n    keywords,\n    important_details: importantDetails,\n    suggested_topics: suggestedTopics,\n    confidence\n  }\n};\n\ndelete clean.gemini_request_body;\ndelete clean.skip_gemini_analysis;\n\nreturn [\n  {\n    json: clean\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -64
+      ],
+      "id": "0167a0e9-01af-4e39-80e7-26e799542b64",
+      "name": "Parse file analysis"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Decide file analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide file analysis": {
+      "main": [
+        [
+          {
+            "node": "IF should analyze file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF should analyze file": {
+      "main": [
+        [
+          {
+            "node": "Telegram getFile",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return no file analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram getFile": {
+      "main": [
+        [
+          {
+            "node": "Download Telegram file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Telegram file": {
+      "main": [
+        [
+          {
+            "node": "Prepare Gemini file request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Gemini file request": {
+      "main": [
+        [
+          {
+            "node": "IF skip Gemini analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF skip Gemini analysis": {
+      "main": [
+        [
+          {
+            "node": "Return unsupported file analysis",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gemini analyze file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini analyze file": {
+      "main": [
+        [
+          {
+            "node": "Parse file analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return no file analysis": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "964c9fc0-e597-4e60-b132-90e0ffee4ffa",
+  "meta": {
+    "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"
+  },
+  "id": "29RmHLQgRiiy7qh4h1h3A",
+  "tags": []
+}
