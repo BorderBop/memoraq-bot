@@ -6531,6 +6531,108 @@ CREATE TABLE gis.locations (
 ALTER TABLE gis.locations OWNER TO postgres;
 
 --
+-- Name: message_ai_index; Type: TABLE; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE TABLE gnote.message_ai_index (
+    id bigint NOT NULL,
+    message_uuid uuid NOT NULL,
+    user_id bigint NOT NULL,
+    summary text,
+    keywords text[],
+    ai_content text,
+    category text,
+    language text,
+    entities jsonb,
+    model_name text,
+    processed_at timestamp without time zone DEFAULT now(),
+    pending_message_id bigint,
+    source_status text DEFAULT 'pending'::text,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    message_id bigint
+);
+
+
+ALTER TABLE gnote.message_ai_index OWNER TO supabase_admin;
+
+--
+-- Name: message_ai_index_id_seq; Type: SEQUENCE; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE SEQUENCE gnote.message_ai_index_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE gnote.message_ai_index_id_seq OWNER TO supabase_admin;
+
+--
+-- Name: message_ai_index_id_seq; Type: SEQUENCE OWNED BY; Schema: gnote; Owner: supabase_admin
+--
+
+ALTER SEQUENCE gnote.message_ai_index_id_seq OWNED BY gnote.message_ai_index.id;
+
+
+--
+-- Name: message_ai_metadata; Type: TABLE; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE TABLE gnote.message_ai_metadata (
+    id bigint NOT NULL,
+    message_id bigint,
+    pending_message_id bigint,
+    message_uuid uuid,
+    user_id bigint NOT NULL,
+    source_status text DEFAULT 'pending'::text NOT NULL,
+    summary text,
+    detected_type text,
+    language text,
+    keywords jsonb DEFAULT '[]'::jsonb NOT NULL,
+    important_details jsonb DEFAULT '[]'::jsonb NOT NULL,
+    suggested_topics jsonb DEFAULT '[]'::jsonb NOT NULL,
+    confidence numeric(4,3) DEFAULT 0,
+    raw_ai_json jsonb DEFAULT '{}'::jsonb NOT NULL,
+    ai_provider text DEFAULT 'gemini'::text,
+    ai_model text DEFAULT 'gemini-2.5-flash'::text,
+    analysis_status text,
+    error_message text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    category text,
+    ai_content text,
+    model_name text DEFAULT 'gemini'::text,
+    entities jsonb DEFAULT '{}'::jsonb
+);
+
+
+ALTER TABLE gnote.message_ai_metadata OWNER TO supabase_admin;
+
+--
+-- Name: message_ai_metadata_id_seq; Type: SEQUENCE; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE SEQUENCE gnote.message_ai_metadata_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE gnote.message_ai_metadata_id_seq OWNER TO supabase_admin;
+
+--
+-- Name: message_ai_metadata_id_seq; Type: SEQUENCE OWNED BY; Schema: gnote; Owner: supabase_admin
+--
+
+ALTER SEQUENCE gnote.message_ai_metadata_id_seq OWNED BY gnote.message_ai_metadata.id;
+
+
+--
 -- Name: messages; Type: TABLE; Schema: gnote; Owner: supabase_admin
 --
 
@@ -6547,7 +6649,14 @@ CREATE TABLE gnote.messages (
     mime_type text,
     caption text,
     telegram_file_path text,
-    file_url text
+    file_url text,
+    deleted_at timestamp without time zone,
+    latitude double precision,
+    longitude double precision,
+    location_title text,
+    location_address text,
+    maps_url text,
+    message_uuid uuid DEFAULT gen_random_uuid()
 );
 
 
@@ -6591,7 +6700,13 @@ CREATE TABLE gnote.pending_messages (
     mime_type text,
     caption text,
     telegram_file_path text,
-    file_url text
+    file_url text,
+    latitude double precision,
+    longitude double precision,
+    location_title text,
+    location_address text,
+    maps_url text,
+    message_uuid uuid DEFAULT gen_random_uuid()
 );
 
 
@@ -6627,8 +6742,9 @@ CREATE TABLE gnote.topics (
     id bigint NOT NULL,
     title text NOT NULL,
     user_id bigint NOT NULL,
-    crerated_at timestamp with time zone DEFAULT now(),
-    all_messages bigint DEFAULT 0
+    created_at timestamp with time zone DEFAULT now(),
+    all_messages bigint DEFAULT 0,
+    removable boolean DEFAULT true NOT NULL
 );
 
 
@@ -6663,7 +6779,9 @@ ALTER SEQUENCE gnote.topics_id_seq OWNED BY gnote.topics.id;
 CREATE TABLE gnote.user_state (
     user_id bigint NOT NULL,
     state text,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    search_query text,
+    updated_at timestamp with time zone DEFAULT now()
 );
 
 
@@ -6678,7 +6796,10 @@ CREATE TABLE gnote.users (
     name text NOT NULL,
     first_visit timestamp with time zone DEFAULT now(),
     last_visit timestamp with time zone DEFAULT now(),
-    all_messages bigint DEFAULT 0
+    all_messages bigint DEFAULT 0,
+    username text,
+    first_name text,
+    last_name text
 );
 
 
@@ -7389,6 +7510,20 @@ ALTER TABLE ONLY auth.refresh_tokens ALTER COLUMN id SET DEFAULT nextval('auth.r
 
 
 --
+-- Name: message_ai_index id; Type: DEFAULT; Schema: gnote; Owner: supabase_admin
+--
+
+ALTER TABLE ONLY gnote.message_ai_index ALTER COLUMN id SET DEFAULT nextval('gnote.message_ai_index_id_seq'::regclass);
+
+
+--
+-- Name: message_ai_metadata id; Type: DEFAULT; Schema: gnote; Owner: supabase_admin
+--
+
+ALTER TABLE ONLY gnote.message_ai_metadata ALTER COLUMN id SET DEFAULT nextval('gnote.message_ai_metadata_id_seq'::regclass);
+
+
+--
 -- Name: messages id; Type: DEFAULT; Schema: gnote; Owner: supabase_admin
 --
 
@@ -7877,6 +8012,30 @@ ALTER TABLE ONLY core.schedules
 
 ALTER TABLE ONLY gis.locations
     ADD CONSTRAINT locations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: message_ai_index message_ai_index_message_uuid_key; Type: CONSTRAINT; Schema: gnote; Owner: supabase_admin
+--
+
+ALTER TABLE ONLY gnote.message_ai_index
+    ADD CONSTRAINT message_ai_index_message_uuid_key UNIQUE (message_uuid);
+
+
+--
+-- Name: message_ai_index message_ai_index_pkey; Type: CONSTRAINT; Schema: gnote; Owner: supabase_admin
+--
+
+ALTER TABLE ONLY gnote.message_ai_index
+    ADD CONSTRAINT message_ai_index_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: message_ai_metadata message_ai_metadata_pkey; Type: CONSTRAINT; Schema: gnote; Owner: supabase_admin
+--
+
+ALTER TABLE ONLY gnote.message_ai_metadata
+    ADD CONSTRAINT message_ai_metadata_pkey PRIMARY KEY (id);
 
 
 --
@@ -8573,10 +8732,94 @@ CREATE INDEX users_is_anonymous_idx ON auth.users USING btree (is_anonymous);
 
 
 --
+-- Name: ix_message_ai_index_message; Type: INDEX; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE INDEX ix_message_ai_index_message ON gnote.message_ai_index USING btree (message_id);
+
+
+--
+-- Name: ix_message_ai_index_orphans; Type: INDEX; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE INDEX ix_message_ai_index_orphans ON gnote.message_ai_index USING btree (source_status, created_at);
+
+
+--
+-- Name: ix_message_ai_index_status; Type: INDEX; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE INDEX ix_message_ai_index_status ON gnote.message_ai_index USING btree (source_status, processed_at);
+
+
+--
+-- Name: ix_message_ai_metadata_detected_type; Type: INDEX; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE INDEX ix_message_ai_metadata_detected_type ON gnote.message_ai_metadata USING btree (detected_type);
+
+
+--
+-- Name: ix_message_ai_metadata_keywords_gin; Type: INDEX; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE INDEX ix_message_ai_metadata_keywords_gin ON gnote.message_ai_metadata USING gin (keywords);
+
+
+--
+-- Name: ix_message_ai_metadata_orphans; Type: INDEX; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE INDEX ix_message_ai_metadata_orphans ON gnote.message_ai_metadata USING btree (source_status, created_at);
+
+
+--
+-- Name: ix_message_ai_metadata_raw_json_gin; Type: INDEX; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE INDEX ix_message_ai_metadata_raw_json_gin ON gnote.message_ai_metadata USING gin (raw_ai_json);
+
+
+--
+-- Name: ix_message_ai_metadata_status_created; Type: INDEX; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE INDEX ix_message_ai_metadata_status_created ON gnote.message_ai_metadata USING btree (source_status, created_at);
+
+
+--
+-- Name: ix_message_ai_metadata_user; Type: INDEX; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE INDEX ix_message_ai_metadata_user ON gnote.message_ai_metadata USING btree (user_id);
+
+
+--
 -- Name: unique_user_topic_title; Type: INDEX; Schema: gnote; Owner: supabase_admin
 --
 
 CREATE UNIQUE INDEX unique_user_topic_title ON gnote.topics USING btree (user_id, lower(title));
+
+
+--
+-- Name: ux_message_ai_index_pending; Type: INDEX; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE UNIQUE INDEX ux_message_ai_index_pending ON gnote.message_ai_index USING btree (pending_message_id) WHERE (pending_message_id IS NOT NULL);
+
+
+--
+-- Name: ux_message_ai_metadata_message; Type: INDEX; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE UNIQUE INDEX ux_message_ai_metadata_message ON gnote.message_ai_metadata USING btree (message_id) WHERE (message_id IS NOT NULL);
+
+
+--
+-- Name: ux_message_ai_metadata_pending; Type: INDEX; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE UNIQUE INDEX ux_message_ai_metadata_pending ON gnote.message_ai_metadata USING btree (pending_message_id) WHERE (pending_message_id IS NOT NULL);
 
 
 --
@@ -9252,6 +9495,22 @@ ALTER TABLE ONLY core.users
 
 ALTER TABLE ONLY core.schedules
     ADD CONSTRAINT work_schedules_master_id_fkey FOREIGN KEY (master_id) REFERENCES core.users(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+
+--
+-- Name: message_ai_metadata fk_message_ai_metadata_message; Type: FK CONSTRAINT; Schema: gnote; Owner: supabase_admin
+--
+
+ALTER TABLE ONLY gnote.message_ai_metadata
+    ADD CONSTRAINT fk_message_ai_metadata_message FOREIGN KEY (message_id) REFERENCES gnote.messages(id) ON DELETE CASCADE;
+
+
+--
+-- Name: message_ai_metadata fk_message_ai_metadata_pending; Type: FK CONSTRAINT; Schema: gnote; Owner: supabase_admin
+--
+
+ALTER TABLE ONLY gnote.message_ai_metadata
+    ADD CONSTRAINT fk_message_ai_metadata_pending FOREIGN KEY (pending_message_id) REFERENCES gnote.pending_messages(id) ON DELETE SET NULL;
 
 
 --
@@ -10969,6 +11228,34 @@ GRANT ALL ON TABLE extensions.pg_stat_statements TO postgres WITH GRANT OPTION;
 --
 
 GRANT ALL ON TABLE extensions.pg_stat_statements_info TO postgres WITH GRANT OPTION;
+
+
+--
+-- Name: TABLE message_ai_index; Type: ACL; Schema: gnote; Owner: supabase_admin
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE gnote.message_ai_index TO postgres;
+
+
+--
+-- Name: SEQUENCE message_ai_index_id_seq; Type: ACL; Schema: gnote; Owner: supabase_admin
+--
+
+GRANT SELECT,USAGE ON SEQUENCE gnote.message_ai_index_id_seq TO postgres;
+
+
+--
+-- Name: TABLE message_ai_metadata; Type: ACL; Schema: gnote; Owner: supabase_admin
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE gnote.message_ai_metadata TO postgres;
+
+
+--
+-- Name: SEQUENCE message_ai_metadata_id_seq; Type: ACL; Schema: gnote; Owner: supabase_admin
+--
+
+GRANT SELECT,USAGE ON SEQUENCE gnote.message_ai_metadata_id_seq TO postgres;
 
 
 --
