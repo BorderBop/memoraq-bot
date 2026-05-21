@@ -61,6 +61,32 @@ DO UPDATE SET
   updated_at = NOW();
 
 
+
+INSERT INTO gnote.app_settings (
+  key,
+  value,
+  description,
+  updated_at
+)
+VALUES
+  (
+    'search.session_ttl_days',
+    '7'::jsonb,
+    'Search sessions older than this number of days are removed by cleanup workflow',
+    NOW()
+  ),
+  (
+    'deleted_messages.ttl_days',
+    '7'::jsonb,
+    'Soft-deleted messages older than this number of days are permanently removed',
+    NOW()
+  )
+ON CONFLICT (key)
+DO UPDATE SET
+  value = EXCLUDED.value,
+  description = EXCLUDED.description,
+  updated_at = NOW();
+
 -- =========================================================
 -- gnote.message_rate_limit_settings
 -- Single-row global rate limit config
