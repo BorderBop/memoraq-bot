@@ -21,14 +21,14 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH deleted_rows AS (\n  DELETE FROM gnote.messages m\n  USING gnote.topics t\n  WHERE m.topic_id = t.id\n    AND t.user_id = m.user_id\n    AND LOWER(t.title) = 'deleted messages'\n    AND m.deleted_at IS NOT NULL\n    AND m.deleted_at < NOW() - INTERVAL '7 days'\n  RETURNING\n    m.id,\n    m.user_id,\n    m.topic_id,\n    m.content,\n    m.created_at,\n    m.deleted_at,\n    m.message_type,\n    m.file_name\n)\n\nSELECT\n  COUNT(*) AS permanently_deleted_count,\n  NOW() AS purge_executed_at\nFROM deleted_rows;",
+        "query": "WITH settings AS (\n  SELECT\n    COALESCE(\n      (\n        SELECT (value #>> '{}')::INTEGER\n        FROM gnote.app_settings\n        WHERE key = 'deleted_messages.ttl_days'\n      ),\n      7\n    ) AS ttl_days\n),\n\ndeleted_rows AS (\n  DELETE FROM gnote.messages m\n  USING settings s\n  WHERE m.deleted_at IS NOT NULL\n    AND m.deleted_at < NOW() - (s.ttl_days || ' days')::INTERVAL\n  RETURNING\n    m.id,\n    m.user_id,\n    m.topic_id,\n    m.content,\n    m.created_at,\n    m.deleted_at,\n    m.message_type,\n    m.file_name\n)\n\nSELECT\n  COUNT(*) AS permanently_deleted_count,\n  NOW() AS purge_executed_at\nFROM deleted_rows;",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        240,
-        96
+        576,
+        0
       ],
       "id": "e34e0d4b-fbbb-4774-8f60-303d745196b3",
       "name": "purge old deleted messages",
@@ -42,17 +42,38 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH settings AS (\n  SELECT\n    COALESCE(\n      (\n        SELECT (value #>> '{}')::INTEGER\n        FROM gnote.app_settings\n        WHERE key = 'search.session_ttl_days'\n      ),\n      7\n    ) AS ttl_days\n),\n\ndeleted_sessions AS (\n  DELETE FROM gnote.search_sessions ss\n  USING settings s\n  WHERE ss.created_at < NOW() - (s.ttl_days || ' days')::INTERVAL\n  RETURNING ss.id\n)\n\nSELECT\n  COUNT(*) AS deleted_search_sessions\nFROM deleted_sessions;",
+        "query": "WITH settings AS (\n  SELECT\n    COALESCE(\n      (\n        SELECT (value #>> '{}')::INTEGER\n        FROM gnote.app_settings\n        WHERE key = 'search.session_ttl_days'\n      ),\n      7\n    ) AS ttl_days\n),\n\nold_sessions AS (\n  SELECT ss.id\n  FROM gnote.search_sessions ss\n  CROSS JOIN settings s\n  WHERE ss.created_at < NOW() - (s.ttl_days || ' days')::INTERVAL\n),\n\ndeleted_results AS (\n  DELETE FROM gnote.search_session_results r\n  USING old_sessions s\n  WHERE r.search_session_id = s.id\n  RETURNING r.id\n),\n\ndeleted_sessions AS (\n  DELETE FROM gnote.search_sessions ss\n  USING old_sessions s\n  WHERE ss.id = s.id\n  RETURNING ss.id\n)\n\nSELECT\n  (SELECT COUNT(*) FROM deleted_sessions) AS deleted_search_sessions,\n  (SELECT COUNT(*) FROM deleted_results) AS deleted_search_results,\n  NOW() AS cleanup_executed_at;",
         "options": {}
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        240,
-        -112
+        384,
+        0
       ],
       "id": "c41cbf4f-4162-4789-b03b-0c883c21ef08",
       "name": "Cleanup old search sessions",
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH settings AS (\n  SELECT\n    COALESCE(\n      (\n        SELECT (value #>> '{}')::INTEGER\n        FROM gnote.app_settings\n        WHERE key = 'pending.cleanup_hours'\n      ),\n      24\n    ) AS cleanup_hours\n),\n\nold_pending AS (\n  SELECT\n    pm.id,\n    pm.user_id,\n    pm.message_uuid,\n    pm.created_at\n  FROM gnote.pending_messages pm\n  CROSS JOIN settings s\n  WHERE pm.created_at < NOW() - (s.cleanup_hours || ' hours')::INTERVAL\n),\n\ndeleted_metadata_linked AS (\n  DELETE FROM gnote.message_ai_metadata meta\n  USING old_pending p\n  WHERE meta.user_id = p.user_id\n    AND meta.message_id IS NULL\n    AND (\n      meta.pending_message_id = p.id\n      OR meta.message_uuid = p.message_uuid\n    )\n  RETURNING meta.id\n),\n\ndeleted_pending AS (\n  DELETE FROM gnote.pending_messages pm\n  USING old_pending p\n  WHERE pm.id = p.id\n  RETURNING pm.id\n),\n\ndeleted_metadata_orphans AS (\n  DELETE FROM gnote.message_ai_metadata meta\n  CROSS JOIN settings s\n  WHERE meta.message_id IS NULL\n    AND COALESCE(meta.source_status, 'pending') = 'pending'\n    AND meta.created_at < NOW() - (s.cleanup_hours || ' hours')::INTERVAL\n  RETURNING meta.id\n),\n\ndeleted_user_state AS (\n  DELETE FROM gnote.user_state us\n  CROSS JOIN settings s\n  WHERE us.state IN ('waiting_for_extra_keywords', 'waiting_search_query')\n    AND us.updated_at < NOW() - (s.cleanup_hours || ' hours')::INTERVAL\n  RETURNING us.user_id\n)\n\nSELECT\n  (SELECT COUNT(*) FROM deleted_pending) AS deleted_pending_messages,\n  (\n    (SELECT COUNT(*) FROM deleted_metadata_linked)\n    +\n    (SELECT COUNT(*) FROM deleted_metadata_orphans)\n  ) AS deleted_pending_metadata,\n  (SELECT COUNT(*) FROM deleted_user_state) AS deleted_stale_user_states,\n  NOW() AS cleanup_executed_at;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        208,
+        0
+      ],
+      "id": "303f9630-9239-485f-aa16-da3b3c2f623b",
+      "name": "Cleanup stale pending messages and metadata",
       "credentials": {
         "postgres": {
           "id": "MuKN7jUvqjq4touw",
@@ -67,12 +88,7 @@
       "main": [
         [
           {
-            "node": "purge old deleted messages",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Cleanup old search sessions",
+            "node": "Cleanup stale pending messages and metadata",
             "type": "main",
             "index": 0
           }
@@ -83,15 +99,37 @@
       "main": [
         []
       ]
+    },
+    "Cleanup stale pending messages and metadata": {
+      "main": [
+        [
+          {
+            "node": "Cleanup old search sessions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cleanup old search sessions": {
+      "main": [
+        [
+          {
+            "node": "purge old deleted messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "active": true,
+  "active": false,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "f21231b0-8aad-449a-9954-c1f0eb22f00f",
+  "versionId": "3fa06f45-d943-45f1-8b80-0db9dcd91b20",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"
