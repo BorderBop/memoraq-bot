@@ -27,11 +27,32 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        208,
-        0
+        240,
+        96
       ],
       "id": "e34e0d4b-fbbb-4774-8f60-303d745196b3",
       "name": "purge old deleted messages",
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH settings AS (\n  SELECT\n    COALESCE(\n      (\n        SELECT (value #>> '{}')::INTEGER\n        FROM gnote.app_settings\n        WHERE key = 'search.session_ttl_days'\n      ),\n      7\n    ) AS ttl_days\n),\n\ndeleted_sessions AS (\n  DELETE FROM gnote.search_sessions ss\n  USING settings s\n  WHERE ss.created_at < NOW() - (s.ttl_days || ' days')::INTERVAL\n  RETURNING ss.id\n)\n\nSELECT\n  COUNT(*) AS deleted_search_sessions\nFROM deleted_sessions;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        240,
+        -112
+      ],
+      "id": "c41cbf4f-4162-4789-b03b-0c883c21ef08",
+      "name": "Cleanup old search sessions",
       "credentials": {
         "postgres": {
           "id": "MuKN7jUvqjq4touw",
@@ -49,8 +70,18 @@
             "node": "purge old deleted messages",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Cleanup old search sessions",
+            "type": "main",
+            "index": 0
           }
         ]
+      ]
+    },
+    "purge old deleted messages": {
+      "main": [
+        []
       ]
     }
   },
@@ -60,7 +91,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "74b04c58-ded2-4a6c-baa4-4f7cd3958b4d",
+  "versionId": "f21231b0-8aad-449a-9954-c1f0eb22f00f",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"
