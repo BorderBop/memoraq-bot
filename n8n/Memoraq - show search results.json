@@ -1,0 +1,248 @@
+{
+  "name": "Memoraq - show search results",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nconst callback = input.callback_query || null;\n\n// Вариант 1: пришел callback от кнопки search_show_all/search_show_top\nif (callback) {\n  const data = String(callback.data || '');\n\n  let mode = null;\n  let sessionId = null;\n\n  if (data.startsWith('search_show_all:')) {\n    mode = 'all';\n    sessionId = data.replace('search_show_all:', '').trim();\n  }\n\n  if (data.startsWith('search_show_top:')) {\n    mode = 'top';\n    sessionId = data.replace('search_show_top:', '').trim();\n  }\n\n  if (!mode || !sessionId) {\n    throw new Error(`Unsupported search results callback: ${data}`);\n  }\n\n  return [\n    {\n      json: {\n        user_id: callback.from.id,\n        chat_id: callback.message.chat.id,\n        callback_query_id: callback.id,\n        telegram_message_id: callback.message.message_id,\n        search_session_id: sessionId,\n        mode,\n        is_callback: true\n      }\n    }\n  ];\n}\n\n// Вариант 2: прямой вызов из main workflow без кнопки\nconst searchSessionId =\n  input.search_session_id ||\n  input.callback_search_session_id ||\n  input.session_id ||\n  null;\n\nconst userId =\n  input.user_id ||\n  input.message?.from?.id ||\n  input.callback_query?.from?.id ||\n  null;\n\nconst chatId =\n  input.chat_id ||\n  input.message?.chat?.id ||\n  input.callback_query?.message?.chat?.id ||\n  userId ||\n  null;\n\nconst mode = String(input.mode || 'top').trim();\n\nif (!searchSessionId) {\n  throw new Error(\n    `Missing search_session_id for direct show search results call. Input keys: ${Object.keys(input).join(', ')}`\n  );\n}\n\nif (!userId || !chatId) {\n  throw new Error(\n    `Missing user_id/chat_id for direct show search results call. Input keys: ${Object.keys(input).join(', ')}`\n  );\n}\n\nreturn [\n  {\n    json: {\n      user_id: userId,\n      chat_id: chatId,\n      callback_query_id: null,\n      telegram_message_id: input.telegram_message_id || null,\n      search_session_id: searchSessionId,\n      mode,\n      is_callback: false\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        -48
+      ],
+      "id": "7eb61e9f-03fc-4431-851e-620fda789ccf",
+      "name": "Parse search results callback"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $env.TELEGRAM_BOT_TOKEN + '/answerCallbackQuery' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    callback_query_id: $json.callback_query_id,\n    text: $json.mode === 'top' ? 'Showing top results' : 'Showing all results',\n    show_alert: false\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -272,
+        -192
+      ],
+      "id": "532bdf65-7994-4738-850b-12ce812de91b",
+      "name": "Answer search results callback"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH input_data AS (\n  SELECT\n    '{{ String($json.search_session_id || \"\").replace(/'/g, \"''\") }}'::UUID AS callback_search_session_id,\n    {{ $json.user_id }}::BIGINT AS callback_user_id,\n    {{ $json.chat_id }}::BIGINT AS callback_chat_id,\n    '{{ String($json.mode || \"top\").replace(/'/g, \"''\") }}'::TEXT AS mode\n),\n\nsettings AS (\n  SELECT\n    COALESCE(\n      (\n        SELECT (value #>> '{}')::INTEGER\n        FROM gnote.app_settings\n        WHERE key = 'search.top_relevant_limit'\n      ),\n      10\n    ) AS top_relevant_limit\n),\n\nresolved_session AS (\n  SELECT\n    COALESCE(\n      (\n        SELECT r.search_session_id\n        FROM gnote.search_session_results r\n        JOIN input_data i ON r.search_session_id = i.callback_search_session_id\n        LIMIT 1\n      ),\n      (\n        SELECT ss.id\n        FROM gnote.search_sessions ss\n        JOIN input_data i ON ss.user_id = i.callback_user_id\n        WHERE EXISTS (\n          SELECT 1\n          FROM gnote.search_session_results r\n          WHERE r.search_session_id = ss.id\n        )\n        ORDER BY ss.created_at DESC\n        LIMIT 1\n      )\n    ) AS search_session_id\n),\n\nbase AS (\n  SELECT\n    rs.search_session_id,\n    i.callback_user_id,\n    i.callback_chat_id,\n    i.mode,\n    s.top_relevant_limit,\n\n    ss.user_id AS session_user_id,\n    ss.chat_id AS session_chat_id,\n    ss.search_query,\n    ss.total_count,\n\n    r.result_position,\n    r.relevance_score,\n    r.result_payload,\n    r.message_id AS stored_message_id,\n\n    i.callback_search_session_id\n\n  FROM input_data i\n  CROSS JOIN settings s\n  CROSS JOIN resolved_session rs\n\n  JOIN gnote.search_session_results r\n    ON r.search_session_id = rs.search_session_id\n\n  LEFT JOIN gnote.search_sessions ss\n    ON ss.id = rs.search_session_id\n\n  WHERE rs.search_session_id IS NOT NULL\n),\n\njoined AS (\n  SELECT\n    b.search_session_id,\n    b.callback_search_session_id,\n\n    COALESCE(b.session_user_id, b.callback_user_id) AS user_id,\n    COALESCE(b.session_chat_id, b.callback_chat_id) AS chat_id,\n\n    b.search_query,\n    COALESCE(b.total_count, COUNT(*) OVER ())::INTEGER AS total_count,\n    b.mode,\n    b.top_relevant_limit,\n\n    b.result_position,\n    b.relevance_score,\n    b.result_payload,\n\n    COALESCE(\n      m.id,\n      b.stored_message_id,\n      CASE\n        WHEN COALESCE(b.result_payload->>'message_id', '') ~ '^[0-9]+$'\n        THEN (b.result_payload->>'message_id')::BIGINT\n        ELSE NULL\n      END,\n      CASE\n        WHEN COALESCE(b.result_payload->>'id', '') ~ '^[0-9]+$'\n        THEN (b.result_payload->>'id')::BIGINT\n        ELSE NULL\n      END\n    ) AS message_id,\n\n    COALESCE(m.content, b.result_payload->>'content') AS content,\n\n    COALESCE(\n      m.created_at,\n      CASE\n        WHEN COALESCE(b.result_payload->>'created_at', '') <> ''\n        THEN (b.result_payload->>'created_at')::TIMESTAMPTZ\n        ELSE NULL\n      END\n    ) AS created_at,\n\n    COALESCE(m.message_type, b.result_payload->>'message_type', 'text') AS message_type,\n\n    COALESCE(m.file_id, b.result_payload->>'file_id') AS file_id,\n    COALESCE(m.file_unique_id, b.result_payload->>'file_unique_id') AS file_unique_id,\n    COALESCE(m.file_name, b.result_payload->>'file_name') AS file_name,\n    COALESCE(m.mime_type, b.result_payload->>'mime_type') AS mime_type,\n    COALESCE(m.caption, b.result_payload->>'caption') AS caption,\n\n    COALESCE(\n      m.latitude,\n      CASE\n        WHEN COALESCE(b.result_payload->>'latitude', '') ~ '^-?[0-9]+(\\.[0-9]+)?$'\n        THEN (b.result_payload->>'latitude')::DOUBLE PRECISION\n        ELSE NULL\n      END\n    ) AS latitude,\n\n    COALESCE(\n      m.longitude,\n      CASE\n        WHEN COALESCE(b.result_payload->>'longitude', '') ~ '^-?[0-9]+(\\.[0-9]+)?$'\n        THEN (b.result_payload->>'longitude')::DOUBLE PRECISION\n        ELSE NULL\n      END\n    ) AS longitude,\n\n    COALESCE(m.location_title, b.result_payload->>'location_title') AS location_title,\n    COALESCE(m.location_address, b.result_payload->>'location_address') AS location_address,\n    COALESCE(m.maps_url, b.result_payload->>'maps_url') AS maps_url,\n\n    COALESCE(t.title, b.result_payload->>'topic_title') AS topic_title,\n\n    COALESCE(\n      b.result_payload->>'display_text',\n      m.file_name,\n      m.caption,\n      m.content,\n      m.location_title,\n      m.location_address,\n      m.maps_url,\n      b.result_payload->>'ai_summary',\n      b.result_payload->>'content',\n      b.result_payload->>'caption',\n      b.result_payload->>'file_name',\n      'Message'\n    ) AS display_text\n\n  FROM base b\n\n  LEFT JOIN gnote.messages m\n    ON m.id = b.stored_message_id\n   AND m.deleted_at IS NULL\n\n  LEFT JOIN gnote.topics t\n    ON t.id = m.topic_id\n   AND t.user_id = m.user_id\n)\n\nSELECT\n  user_id,\n  chat_id,\n\n  search_session_id,\n  callback_search_session_id,\n\n  search_query,\n  total_count,\n  mode,\n  top_relevant_limit,\n\n  result_position,\n  relevance_score,\n\n  message_id,\n  content,\n  display_text,\n  created_at,\n  message_type,\n  file_id,\n  file_unique_id,\n  file_name,\n  mime_type,\n  caption,\n  latitude,\n  longitude,\n  location_title,\n  location_address,\n  maps_url,\n  topic_title,\n\n  result_payload\nFROM joined\nWHERE\n  message_id IS NOT NULL\n  AND (\n    mode = 'all'\n    OR result_position <= top_relevant_limit\n  )\nORDER BY result_position ASC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        160,
+        -32
+      ],
+      "id": "cf64c8a2-8ce3-4126-969a-328d48e75eb5",
+      "name": "Get saved search results",
+      "alwaysOutputData": false,
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rawItems = $input.all();\n\nlet callbackPayload = {};\nlet workflowInput = {};\n\ntry {\n  callbackPayload = $('Parse search results callback').first().json || {};\n} catch (e) {\n  callbackPayload = {};\n}\n\ntry {\n  workflowInput = $('When Executed by Another Workflow').first().json || {};\n} catch (e) {\n  workflowInput = {};\n}\n\nconst fallbackChatId =\n  callbackPayload.chat_id ||\n  callbackPayload.user_id ||\n  workflowInput.callback_query?.message?.chat?.id ||\n  workflowInput.callback_query?.from?.id ||\n  workflowInput.message?.chat?.id ||\n  workflowInput.message?.from?.id ||\n  workflowInput.chat_id ||\n  workflowInput.user_id ||\n  null;\n\n// Точки реально расширяют bubble.\n// Если кнопки всё еще режутся — увеличь 26 до 32–38.\n// Если выглядит слишком длинно — уменьши до 18–22.\nconst WIDTH_FILLER = '.'.repeat(26);\n\nfunction clean(value) {\n  if (value === null || value === undefined) return '';\n  return String(value).trim();\n}\n\nfunction getPayload(row) {\n  const payload = row.result_payload || {};\n\n  if (typeof payload === 'string') {\n    try {\n      return JSON.parse(payload);\n    } catch (e) {\n      return {};\n    }\n  }\n\n  if (payload && typeof payload === 'object') {\n    return payload;\n  }\n\n  return {};\n}\n\nfunction fromPayload(row, key) {\n  const p = getPayload(row);\n  return row[key] ?? p[key] ?? '';\n}\n\nfunction formatDate(value) {\n  if (!value) return '';\n\n  try {\n    const d = new Date(value);\n\n    if (Number.isNaN(d.getTime())) {\n      return String(value);\n    }\n\n    const pad = n => String(n).padStart(2, '0');\n\n    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${String(d.getFullYear()).slice(-2)}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;\n  } catch (e) {\n    return String(value);\n  }\n}\n\nfunction shorten(text, max = 900) {\n  const value = clean(text).replace(/\\s+/g, ' ');\n  if (value.length <= max) return value;\n  return value.slice(0, max - 1) + '…';\n}\n\nfunction getIcon(messageType, row) {\n  const type = clean(messageType).toLowerCase();\n\n  if (type === 'photo') return '🖼️';\n  if (type === 'voice') return '🎙️';\n  if (type === 'audio') return '🎧';\n  if (type === 'video') return '🎬';\n  if (type === 'video_note') return '🎥';\n  if (type === 'document' || type === 'file') return '📄';\n\n  const lat = fromPayload(row, 'latitude');\n  const lon = fromPayload(row, 'longitude');\n\n  if (lat !== '' && lon !== '') {\n    return '📍';\n  }\n\n  return '💬';\n}\n\nfunction buildKeyboard({ messageId, messageType, fileId, mapsUrl }) {\n  const type = clean(messageType).toLowerCase();\n\n  const buttons = [];\n\n  const isDownloadable =\n    Boolean(fileId) &&\n    Boolean(messageId) &&\n    [\n      'document',\n      'file',\n      'audio',\n      'voice',\n      'video',\n      'video_note'\n    ].includes(type);\n\n  // Photo НЕ downloadable.\n  // Фото Telegram сам открывает в полном размере по тапу на preview.\n  if (isDownloadable) {\n    buttons.push({\n      text: '⬇️ Download',\n      callback_data: `download_msg:${messageId}`\n    });\n  }\n\n  if (messageId) {\n    buttons.push({\n      text: '🧠 Summary',\n      callback_data: `summary_msg:${messageId}`\n    });\n  }\n\n  if (mapsUrl) {\n    buttons.push({\n      text: '🗺 Map',\n      url: mapsUrl\n    });\n  }\n\n  if (messageId) {\n    buttons.push({\n      text: '🗑 Delete',\n      callback_data: `delete_msg:${messageId}`\n    });\n  }\n\n  if (!buttons.length) {\n    return undefined;\n  }\n\n  return {\n    inline_keyboard: [buttons]\n  };\n}\n\nfunction buildFirstLine({ position, total, icon, content }) {\n  const mainText = `${position}/${total} ${icon} ${shorten(content, 500)}`;\n\n  // Добиваем строку точками, чтобы Telegram расширил bubble.\n  return `${mainText} ${WIDTH_FILLER}`;\n}\n\nconst items = rawItems.filter(item => {\n  const row = item.json || {};\n  const messageId = fromPayload(row, 'message_id') || fromPayload(row, 'id');\n  return !!messageId;\n});\n\nif (!items.length) {\n  return [\n    {\n      json: {\n        api_method: 'sendMessage',\n        body: {\n          chat_id: fallbackChatId,\n          text: 'No saved search results found ⚠️\\n\\nPlease run a new search.'\n        }\n      }\n    }\n  ];\n}\n\nconst output = [];\n\nfor (let i = 0; i < items.length; i++) {\n  const row = items[i].json || {};\n\n  const chatId =\n    fromPayload(row, 'chat_id') ||\n    fallbackChatId;\n\n  const messageId =\n    fromPayload(row, 'message_id') ||\n    fromPayload(row, 'id');\n\n  const topicTitle = clean(fromPayload(row, 'topic_title'));\n\n  const messageType =\n    clean(fromPayload(row, 'message_type')).toLowerCase() ||\n    'text';\n\n  const fileId = clean(fromPayload(row, 'file_id'));\n  const fileName = clean(fromPayload(row, 'file_name'));\n  const mapsUrl = clean(fromPayload(row, 'maps_url'));\n\n  const content =\n    clean(fromPayload(row, 'display_text')) ||\n    clean(fromPayload(row, 'content')) ||\n    clean(fromPayload(row, 'caption')) ||\n    clean(fileName) ||\n    clean(fromPayload(row, 'location_title')) ||\n    clean(fromPayload(row, 'location_address')) ||\n    clean(mapsUrl) ||\n    clean(fromPayload(row, 'ai_summary')) ||\n    '[message]';\n\n  const position =\n    Number(fromPayload(row, 'result_position')) ||\n    Number(fromPayload(row, 'result_number')) ||\n    i + 1;\n\n  const total =\n    Number(fromPayload(row, 'total_count')) ||\n    Number(fromPayload(row, 'total_results')) ||\n    items.length;\n\n  const createdAt = fromPayload(row, 'created_at');\n  const icon = getIcon(messageType, row);\n\n  const firstLine = buildFirstLine({\n    position,\n    total,\n    icon,\n    content\n  });\n\n  const captionLines = [\n    firstLine,\n    '',\n    `Type: ${messageType}`\n  ];\n\n  if (topicTitle && topicTitle.toLowerCase() !== 'no topic') {\n    captionLines.push(`Topic: ${topicTitle}`);\n  }\n\n  if (createdAt) {\n    captionLines.push(`Date: ${formatDate(createdAt)}`);\n  }\n\n  const caption = captionLines.join('\\n');\n\n  const replyMarkup = buildKeyboard({\n    messageId,\n    messageType,\n    fileId,\n    mapsUrl\n  });\n\n  if (messageType === 'photo' && fileId) {\n    const body = {\n      chat_id: chatId,\n      photo: fileId,\n      caption\n    };\n\n    if (replyMarkup) {\n      body.reply_markup = replyMarkup;\n    }\n\n    output.push({\n      json: {\n        api_method: 'sendPhoto',\n        body,\n        search_session_id: fromPayload(row, 'search_session_id'),\n        user_id: fromPayload(row, 'user_id'),\n        mode: fromPayload(row, 'mode')\n      }\n    });\n\n    continue;\n  }\n\n  const body = {\n    chat_id: chatId,\n    text: caption\n  };\n\n  if (replyMarkup) {\n    body.reply_markup = replyMarkup;\n  }\n\n  output.push({\n    json: {\n      api_method: 'sendMessage',\n      body,\n      search_session_id: fromPayload(row, 'search_session_id'),\n      user_id: fromPayload(row, 'user_id'),\n      mode: fromPayload(row, 'mode')\n    }\n  });\n}\n\nreturn output;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        368,
+        -32
+      ],
+      "id": "a434300a-5641-4d6f-a25b-c295fe8ee6fc",
+      "name": "Build saved search result messages"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $env.TELEGRAM_BOT_TOKEN + '/' + $json.api_method }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        576,
+        -32
+      ],
+      "id": "8bb27223-129e-4611-89b4-82feb6ceaa3c",
+      "name": "Send saved search result item"
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $('Parse search results callback').first().json || {};\n\nconst searchSessionId = String(source.search_session_id || '').trim();\nconst userId = source.user_id;\nconst chatId = source.chat_id;\nconst mode = String(source.mode || 'top').trim();\n\nif (!searchSessionId) {\n  throw new Error('Missing search_session_id in Parse search results callback');\n}\n\nif (!userId) {\n  throw new Error('Missing user_id in Parse search results callback');\n}\n\nif (!chatId) {\n  throw new Error('Missing chat_id in Parse search results callback');\n}\n\nreturn [\n  {\n    json: {\n      user_id: userId,\n      chat_id: chatId,\n      callback_query_id: source.callback_query_id,\n      telegram_message_id: source.telegram_message_id,\n      search_session_id: searchSessionId,\n      mode\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -64,
+        -48
+      ],
+      "id": "d365c9e0-dcdf-4049-a6c5-390f8b9655be",
+      "name": "Restore search results callback payload"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -912,
+        -48
+      ],
+      "id": "70ec89eb-509c-4dd9-97c6-69ccbed005da",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "0f420f33-4df2-4785-b434-b48edc3e9eed",
+              "leftValue": "={{ $json.is_callback === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -464,
+        -48
+      ],
+      "id": "75d00b22-d042-47b6-95c3-60c11987bfda",
+      "name": "IF search results request is callback"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Parse search results callback": {
+      "main": [
+        [
+          {
+            "node": "IF search results request is callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer search results callback": {
+      "main": [
+        [
+          {
+            "node": "Restore search results callback payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get saved search results": {
+      "main": [
+        [
+          {
+            "node": "Build saved search result messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build saved search result messages": {
+      "main": [
+        [
+          {
+            "node": "Send saved search result item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore search results callback payload": {
+      "main": [
+        [
+          {
+            "node": "Get saved search results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Parse search results callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF search results request is callback": {
+      "main": [
+        [
+          {
+            "node": "Answer search results callback",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Restore search results callback payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "0b8815fb-e26c-4666-ad98-2452b8d51216",
+  "meta": {
+    "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"
+  },
+  "id": "PWhdJOGUmGPDIsgrS_dGC",
+  "tags": []
+}

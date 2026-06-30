@@ -1,0 +1,118 @@
+{
+  "name": "Memoraq - create keywords",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH input_data AS (\n  SELECT\n    {{\n      $json.message?.from?.id\n      || $json.callback_query?.from?.id\n      || $('Telegram Trigger').first().json.message?.from?.id\n      || $('Telegram Trigger').first().json.callback_query?.from?.id\n    }}::BIGINT AS user_id,\n\n    {{\n      $json.message?.chat?.id\n      || $json.callback_query?.message?.chat?.id\n      || $('Telegram Trigger').first().json.message?.chat?.id\n      || $('Telegram Trigger').first().json.callback_query?.message?.chat?.id\n    }}::BIGINT AS chat_id\n),\n\nmetadata_with_message AS (\n  SELECT\n    meta.id AS metadata_id,\n    meta.user_id,\n    meta.message_id,\n    meta.pending_message_id,\n    meta.message_uuid,\n    meta.source_status,\n    meta.keywords,\n\n    m.id AS real_message_id,\n    m.deleted_at AS message_deleted_at\n\n  FROM gnote.message_ai_metadata meta\n\n  LEFT JOIN gnote.messages m\n    ON m.user_id = meta.user_id\n   AND (\n        m.id = meta.message_id\n        OR m.message_uuid = meta.message_uuid\n   )\n\n  WHERE meta.user_id = (SELECT user_id FROM input_data)\n    AND COALESCE(meta.source_status, '') <> 'deleted'\n    AND meta.keywords IS NOT NULL\n    AND jsonb_typeof(meta.keywords) = 'array'\n    AND jsonb_array_length(meta.keywords) > 0\n),\n\nvalid_metadata AS (\n  SELECT *\n  FROM metadata_with_message\n  WHERE\n    -- Case 1: metadata is attached to an existing non-deleted message\n    (\n      real_message_id IS NOT NULL\n      AND message_deleted_at IS NULL\n    )\n\n    OR\n\n    -- Case 2: metadata still has no message_id, but is not deleted.\n    -- This keeps keywords visible even if attach step did not update message_id correctly.\n    (\n      real_message_id IS NULL\n      AND COALESCE(source_status, 'pending') IN ('pending', 'attached', 'active')\n    )\n),\n\nkeywords_raw AS (\n  SELECT\n    TRIM(k.keyword) AS keyword\n  FROM valid_metadata vm\n  CROSS JOIN LATERAL jsonb_array_elements_text(\n    COALESCE(vm.keywords, '[]'::jsonb)\n  ) AS k(keyword)\n  WHERE k.keyword IS NOT NULL\n    AND TRIM(k.keyword) <> ''\n),\n\nnormalized AS (\n  SELECT\n    LOWER(keyword) AS keyword_order_key,\n    MIN(keyword) AS display_keyword,\n    COUNT(*)::INTEGER AS usage_count\n  FROM keywords_raw\n  GROUP BY LOWER(keyword)\n)\n\nSELECT\n  (SELECT user_id FROM input_data) AS user_id,\n  (SELECT chat_id FROM input_data) AS chat_id,\n  display_keyword AS keyword,\n  usage_count\nFROM normalized\nORDER BY usage_count DESC, LOWER(display_keyword) ASC\nLIMIT 100;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -496,
+        -64
+      ],
+      "id": "beac7f02-cb02-43cb-a11d-5af1f593de56",
+      "name": "get user keywords",
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// Try to read Telegram Trigger safely\nlet trigger = {};\ntry {\n  trigger = $('Telegram Trigger').first().json || {};\n} catch (e) {\n  trigger = {};\n}\n\nlet firstInput = {};\ntry {\n  firstInput = items[0]?.json || {};\n} catch (e) {\n  firstInput = {};\n}\n\nfunction firstValue(...values) {\n  for (const value of values) {\n    if (value !== undefined && value !== null && value !== '') {\n      return value;\n    }\n  }\n  return null;\n}\n\nconst userId = firstValue(\n  firstInput.user_id,\n  trigger.message?.from?.id,\n  trigger.callback_query?.from?.id,\n  trigger.callback_query?.message?.chat?.id,\n  trigger.message?.chat?.id\n);\n\nconst chatId = firstValue(\n  firstInput.chat_id,\n  trigger.message?.chat?.id,\n  trigger.callback_query?.message?.chat?.id,\n  trigger.callback_query?.from?.id,\n  trigger.message?.from?.id,\n  userId\n);\n\nif (!chatId) {\n  throw new Error('Cannot detect chat_id for keywords list');\n}\n\n// Remove fake PostgreSQL empty output item: { success: true }\nconst keywordRows = items\n  .map(item => item.json || {})\n  .filter(row => {\n    return (\n      row.keyword !== undefined &&\n      row.keyword !== null &&\n      String(row.keyword).trim() !== ''\n    );\n  });\n\nif (keywordRows.length === 0) {\n  return [\n    {\n      json: {\n        user_id: userId,\n        chat_id: chatId,\n        text:\n`🔑 Keywords\n\nNo keywords found yet.\n\nSave a few messages first, or wait until AI analysis finishes.`\n      }\n    }\n  ];\n}\n\nconst sorted = keywordRows\n  .map(row => ({\n    keyword: String(row.keyword || '').trim(),\n    usage_count: Number(row.usage_count || 0)\n  }))\n  .filter(row => row.keyword)\n  .sort((a, b) => {\n    if (b.usage_count !== a.usage_count) {\n      return b.usage_count - a.usage_count;\n    }\n\n    return a.keyword.localeCompare(b.keyword);\n  });\n\nconst keywordText = sorted\n  .map(row => {\n    return row.usage_count > 1\n      ? `${row.keyword}(${row.usage_count})`\n      : row.keyword;\n  })\n  .join(', ');\n\nconst header = `🔑 Keywords (${sorted.length})`;\n\nlet text = `${header}\\n\\n${keywordText}`;\n\nconst maxLength = 3800;\n\nif (text.length <= maxLength) {\n  return [\n    {\n      json: {\n        user_id: userId,\n        chat_id: chatId,\n        text\n      }\n    }\n  ];\n}\n\n// Split long keyword string into Telegram-safe chunks\nconst chunks = [];\nlet remaining = keywordText;\n\nwhile (remaining.length > 0) {\n  let cutAt = Math.min(maxLength - header.length - 60, remaining.length);\n\n  if (remaining.length > cutAt) {\n    const lastComma = remaining.lastIndexOf(', ', cutAt);\n    if (lastComma > 0) {\n      cutAt = lastComma;\n    }\n  }\n\n  const chunk = remaining.slice(0, cutAt).trim().replace(/,\\s*$/, '');\n  chunks.push(chunk);\n\n  remaining = remaining.slice(cutAt).replace(/^,\\s*/, '').trim();\n}\n\nreturn chunks.map((chunk, index) => ({\n  json: {\n    user_id: userId,\n    chat_id: chatId,\n    text: chunks.length > 1\n      ? `${header}\\n\\nPart ${index + 1}/${chunks.length}\\n\\n${chunk}`\n      : `${header}\\n\\n${chunk}`\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -304,
+        -64
+      ],
+      "id": "530ffdfa-db24-4a3c-9dbe-869f14fe10e5",
+      "name": "format keywords list"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $env.TELEGRAM_BOT_TOKEN + '/sendMessage' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    chat_id: $json.chat_id,\n    text: $json.text\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -112,
+        -64
+      ],
+      "id": "6ee88270-098a-466c-8388-42fe345dc099",
+      "name": "send keywords list"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -736,
+        -64
+      ],
+      "id": "bbead2db-3738-45a9-ac9c-6f8cc7ffc4d7",
+      "name": "When Executed by Another Workflow"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "get user keywords": {
+      "main": [
+        [
+          {
+            "node": "format keywords list",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format keywords list": {
+      "main": [
+        [
+          {
+            "node": "send keywords list",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "get user keywords",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "e2e8ff79-fb0b-4e7a-91ba-6dcf77ab7069",
+  "meta": {
+    "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"
+  },
+  "id": "dLsf-lgz7pI-n3blY_m-9",
+  "tags": []
+}

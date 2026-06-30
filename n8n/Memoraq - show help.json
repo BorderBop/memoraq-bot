@@ -1,0 +1,124 @@
+{
+  "name": "Memoraq - show help",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nconst chatId =\n  input.chat_id ||\n  input.message?.chat?.id ||\n  input.callback_query?.message?.chat?.id ||\n  input.callback_query?.from?.id ||\n  input.message?.from?.id ||\n  null;\n\nconst userId =\n  input.user_id ||\n  input.message?.from?.id ||\n  input.callback_query?.from?.id ||\n  chatId;\n\nconst plan = input.plan || 'free';\nconst limit = Number(input.hourly_limit || 10);\nconst used = Number(input.used_last_hour || 0);\nconst remainingRaw = input.remaining_last_hour;\nconst isUnlimited =\n  input.is_unlimited === true ||\n  input.is_unlimited === 'true';\n\nconst DISPLAY_TIME_ZONE = 'Asia/Jerusalem';\n\nfunction formatReset(value) {\n  if (!value) return 'about 1 hour';\n\n  const date = new Date(value);\n\n  if (Number.isNaN(date.getTime())) {\n    return 'about 1 hour';\n  }\n\n  return new Intl.DateTimeFormat('en-GB', {\n    timeZone: DISPLAY_TIME_ZONE,\n    hour: '2-digit',\n    minute: '2-digit',\n    hour12: false\n  }).format(date);\n}\n\nconst remaining = Math.max(Number(remainingRaw || 0), 0);\n\nconst quotaLine = isUnlimited\n  ? `AI requests: ${used}/∞ used in the last hour`\n  : `AI requests: ${used}/${limit} used in the last hour, ${remaining} left`;\n\nconst resetLine = isUnlimited\n  ? ''\n  : `Limit resets around: ${formatReset(input.reset_at)}`;\n\nconst text =\n`👋 Memoraq saves and finds your important Telegram memories.\n\nSend me text, photos, PDFs, files, voice messages, or locations.\n\nCommands:\n/search — find saved messages\n/keywords — show all keywords\n/help — show help\n\nSearch logic:\n• 1–2 words: quick search without AI\n• 3+ words: AI semantic search\n• voice/photo/document as search query: AI extracts keywords first\n\nAI usage:\n${quotaLine}\nPlan: ${plan}\n${resetLine}\n\nFree users: 10 AI requests per hour.\n\nWhat counts as an AI request:\n• message/photo/document analysis\n• AI semantic search\n• voice query transcription\n• media query analysis\n\nAfter analysis choose:\n✅ Save\n🧠 AI brief\n➕ Add keywords\n❌ Cancel`;\n\nreturn [\n  {\n    json: {\n      user_id: userId,\n      chat_id: chatId,\n      text\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        -96
+      ],
+      "id": "e53c47bf-c102-44b6-a1cb-0ec70d178c18",
+      "name": "create help text"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -160,
+        -96
+      ],
+      "id": "b9ee20a2-09ed-4e3c-aa94-f6a6d71909fb",
+      "name": "send help text",
+      "webhookId": "f52f3960-ddfa-4059-961a-46dafcce3b42",
+      "credentials": {
+        "telegramApi": {
+          "id": "L6tMdX179iCyx0Bk",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH input_data AS (\n  SELECT\n    {{\n      $json.user_id\n      || $json.message?.from?.id\n      || $json.callback_query?.from?.id\n      || $json.callback_query?.message?.chat?.id\n      || $json.message?.chat?.id\n    }}::BIGINT AS user_id,\n\n    {{\n      $json.chat_id\n      || $json.message?.chat?.id\n      || $json.callback_query?.message?.chat?.id\n      || $json.callback_query?.from?.id\n      || $json.message?.from?.id\n    }}::BIGINT AS chat_id\n),\n\nlimit_row AS (\n  SELECT\n    i.user_id,\n    i.chat_id,\n    COALESCE(l.hourly_limit, 10) AS hourly_limit,\n    COALESCE(l.is_unlimited, FALSE) AS is_unlimited,\n    COALESCE(l.plan, 'free') AS plan\n  FROM input_data i\n  LEFT JOIN gnote.ai_user_limits l\n    ON l.user_id = i.user_id\n),\n\nusage_now AS (\n  SELECT\n    lr.*,\n    COUNT(a.id)::INTEGER AS used_last_hour,\n    MIN(a.created_at) AS first_usage_in_window\n  FROM limit_row lr\n  LEFT JOIN gnote.ai_usage_log a\n    ON a.user_id = lr.user_id\n   AND a.created_at >= NOW() - INTERVAL '1 hour'\n   AND a.status IN ('reserved', 'success')\n  GROUP BY\n    lr.user_id,\n    lr.chat_id,\n    lr.hourly_limit,\n    lr.is_unlimited,\n    lr.plan\n)\n\nSELECT\n  user_id,\n  chat_id,\n  plan,\n  hourly_limit,\n  is_unlimited,\n  used_last_hour,\n  CASE\n    WHEN is_unlimited = TRUE THEN NULL\n    ELSE GREATEST(hourly_limit - used_last_hour, 0)\n  END AS remaining_last_hour,\n  COALESCE(\n    first_usage_in_window + INTERVAL '1 hour',\n    NOW() + INTERVAL '1 hour'\n  ) AS reset_at\nFROM usage_now;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -576,
+        -96
+      ],
+      "id": "646494d1-50c8-458a-8d50-6e2f95d3c18c",
+      "name": "Get AI usage for help",
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -784,
+        -96
+      ],
+      "id": "4d8f2a54-14d7-4f4f-939e-f75f6c9bd3f7",
+      "name": "When Executed by Another Workflow"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "create help text": {
+      "main": [
+        [
+          {
+            "node": "send help text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get AI usage for help": {
+      "main": [
+        [
+          {
+            "node": "create help text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Get AI usage for help",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "bef826f2-8a42-4273-a1ab-4a4dc07464b7",
+  "meta": {
+    "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"
+  },
+  "id": "GYCrW8HFH9DcCRVBfSLz-",
+  "tags": []
+}

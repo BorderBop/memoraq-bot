@@ -1,0 +1,658 @@
+{
+  "name": "Memoraq - process message",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH input_user AS (\n  SELECT\n    {{ $json.user_id }}::BIGINT AS user_id,\n    '{{ String($json.username || \"\").replace(/'/g, \"''\") }}'::TEXT AS username,\n    '{{ String($json.first_name || \"\").replace(/'/g, \"''\") }}'::TEXT AS first_name,\n    '{{ String($json.last_name || \"\").replace(/'/g, \"''\") }}'::TEXT AS last_name\n),\n\nprepared_user AS (\n  SELECT\n    user_id,\n    username,\n    first_name,\n    last_name,\n    COALESCE(\n      NULLIF(TRIM(first_name || ' ' || last_name), ''),\n      NULLIF(username, ''),\n      'Telegram User'\n    ) AS display_name\n  FROM input_user\n),\n\nupsert_user AS (\n  INSERT INTO gnote.users (\n    id,\n    name,\n    username,\n    first_name,\n    last_name,\n    all_messages\n  )\n  SELECT\n    user_id,\n    display_name,\n    username,\n    first_name,\n    last_name,\n    0\n  FROM prepared_user\n  ON CONFLICT (id) DO UPDATE SET\n    name = EXCLUDED.name,\n    username = EXCLUDED.username,\n    first_name = EXCLUDED.first_name,\n    last_name = EXCLUDED.last_name\n  RETURNING id\n),\n\nensure_deleted_topic AS (\n  INSERT INTO gnote.topics (\n    user_id,\n    title,\n    created_at,\n    removable\n  )\n  SELECT\n    {{ $json.user_id }}::BIGINT,\n    'deleted messages',\n    NOW(),\n    FALSE\n  WHERE NOT EXISTS (\n    SELECT 1\n    FROM gnote.topics\n    WHERE user_id = {{ $json.user_id }}::BIGINT\n      AND LOWER(title) = 'deleted messages'\n  )\n  RETURNING id\n),\n\n  \nold_pending AS (\n  SELECT\n    id,\n    message_uuid,\n    user_id\n  FROM gnote.pending_messages\n  WHERE user_id = {{ $json.user_id }}\n),\n\ndelete_old_metadata AS (\n  DELETE FROM gnote.message_ai_metadata meta\n  USING old_pending p\n  WHERE meta.user_id = p.user_id\n    AND meta.message_id IS NULL\n    AND (\n      meta.pending_message_id = p.id\n      OR meta.message_uuid = p.message_uuid\n    )\n  RETURNING meta.id\n),\n\ndelete_old_metadata_orphans AS (\n  DELETE FROM gnote.message_ai_metadata meta\n  WHERE meta.user_id = {{ $json.user_id }}\n    AND meta.message_id IS NULL\n    AND meta.pending_message_id IS NULL\n    AND COALESCE(meta.source_status, 'pending') = 'pending'\n    AND meta.created_at > NOW() - INTERVAL '2 hours'\n  RETURNING meta.id\n),\n\nclear_old_pending AS (\n  DELETE FROM gnote.pending_messages pm\n  USING old_pending p\n  WHERE pm.id = p.id\n  RETURNING pm.id\n),\n\n  \n\ninsert_pending AS (\n  INSERT INTO gnote.pending_messages (\n    user_id,\n    message,\n    created_at,\n    message_type,\n    file_id,\n    file_unique_id,\n    file_name,\n    mime_type,\n    caption,\n    telegram_file_path,\n    file_url,\n    latitude,\n    longitude,\n    location_title,\n    location_address,\n    maps_url\n  )\n  VALUES (\n    {{ $json.user_id }},\n    '{{ String($json.message || \"\").replace(/'/g, \"''\") }}',\n    NOW(),\n    '{{ $json.message_type || \"text\" }}',\n    {{ $json.file_id ? \"'\" + String($json.file_id).replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ $json.file_unique_id ? \"'\" + String($json.file_unique_id).replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ $json.file_name ? \"'\" + String($json.file_name).replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ $json.mime_type ? \"'\" + String($json.mime_type).replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ $json.caption ? \"'\" + String($json.caption).replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ $json.telegram_file_path ? \"'\" + String($json.telegram_file_path).replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ $json.file_url ? \"'\" + String($json.file_url).replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ $json.latitude !== null && $json.latitude !== undefined ? Number($json.latitude) : \"NULL\" }},\n    {{ $json.longitude !== null && $json.longitude !== undefined ? Number($json.longitude) : \"NULL\" }},\n    {{ $json.location_title ? \"'\" + String($json.location_title).replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ $json.location_address ? \"'\" + String($json.location_address).replace(/'/g, \"''\") + \"'\" : \"NULL\" }},\n    {{ $json.maps_url ? \"'\" + String($json.maps_url).replace(/'/g, \"''\") + \"'\" : \"NULL\" }}\n  )\n  RETURNING *\n)\n\nSELECT\n  insert_pending.id AS pending_message_id,\n  insert_pending.message_uuid,\n  insert_pending.user_id,\n  {{ $json.chat_id }}::BIGINT AS chat_id,\n  insert_pending.message,\n  insert_pending.message_type,\n  insert_pending.file_id,\n  insert_pending.file_unique_id,\n  insert_pending.file_name,\n  insert_pending.mime_type,\n  insert_pending.caption,\n  insert_pending.telegram_file_path,\n  insert_pending.file_url,\n  insert_pending.latitude,\n  insert_pending.longitude,\n  insert_pending.location_title,\n  insert_pending.location_address,\n  insert_pending.maps_url\nFROM insert_pending;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -912,
+        -256
+      ],
+      "id": "85aa4963-ef74-4d7f-a339-11196f477f03",
+      "name": "add user/message",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\n// Поддерживаем оба варианта:\n// 1) main workflow передал полный Telegram update\n// 2) main workflow уже передал нормализованный payload\nconst msg =\n  input.message && input.message.chat && input.message.from\n    ? input.message\n    : input.telegram_message && input.telegram_message.chat && input.telegram_message.from\n      ? input.telegram_message\n      : null;\n\nfunction firstValue(...values) {\n  for (const value of values) {\n    if (value !== undefined && value !== null && value !== '') return value;\n  }\n  return null;\n}\n\nfunction basePayload(extra = {}) {\n  const userId = firstValue(\n    input.user_id,\n    msg?.from?.id\n  );\n\n  const chatId = firstValue(\n    input.chat_id,\n    msg?.chat?.id,\n    userId\n  );\n\n  return {\n    user_id: userId,\n    chat_id: chatId,\n\n    username: firstValue(input.username, msg?.from?.username, ''),\n    first_name: firstValue(input.first_name, msg?.from?.first_name, ''),\n    last_name: firstValue(input.last_name, msg?.from?.last_name, ''),\n\n    message: null,\n    content: null,\n    message_type: 'text',\n\n    file_id: null,\n    file_unique_id: null,\n    file_name: null,\n    mime_type: null,\n    caption: null,\n    telegram_file_path: null,\n    file_url: null,\n    file_size: null,\n\n    latitude: null,\n    longitude: null,\n    location_title: null,\n    location_address: null,\n    maps_url: null,\n\n    telegram_message: msg || input.telegram_message || null,\n\n    ...extra\n  };\n}\n\n// Если main workflow уже передал готовый normalized payload\nif (!msg) {\n  const userId = firstValue(input.user_id, input.from?.id);\n  const chatId = firstValue(input.chat_id, input.chat?.id, userId);\n\n  if (!userId || !chatId) {\n    throw new Error(\n      `No Telegram message or normalized payload found. Input keys: ${Object.keys(input).join(', ')}`\n    );\n  }\n\n  return [\n    {\n      json: {\n        ...basePayload(),\n        ...input,\n        user_id: userId,\n        chat_id: chatId,\n        username: firstValue(input.username, ''),\n        first_name: firstValue(input.first_name, ''),\n        last_name: firstValue(input.last_name, '')\n      }\n    }\n  ];\n}\n\nif (!msg.from?.id || !msg.chat?.id) {\n  throw new Error('Telegram message exists, but from.id or chat.id is missing');\n}\n\n// Text\nif (msg.text) {\n  return [\n    {\n      json: basePayload({\n        message_type: 'text',\n        message: msg.text,\n        content: msg.text\n      })\n    }\n  ];\n}\n\n// Location\nif (msg.location) {\n  const lat = msg.location.latitude;\n  const lon = msg.location.longitude;\n  const mapsUrl = `https://maps.google.com/?q=${lat},${lon}`;\n\n  return [\n    {\n      json: basePayload({\n        message_type: 'location',\n        message: `Shared location: ${mapsUrl}`,\n        content: `Shared location: ${mapsUrl}`,\n        latitude: lat,\n        longitude: lon,\n        location_title: msg.venue?.title || null,\n        location_address: msg.venue?.address || null,\n        maps_url: mapsUrl\n      })\n    }\n  ];\n}\n\n// Venue\nif (msg.venue) {\n  const lat = msg.venue.location.latitude;\n  const lon = msg.venue.location.longitude;\n  const mapsUrl = `https://maps.google.com/?q=${lat},${lon}`;\n\n  return [\n    {\n      json: basePayload({\n        message_type: 'location',\n        message: `Shared venue: ${msg.venue.title || 'Location'}\\n${mapsUrl}`,\n        content: `Shared venue: ${msg.venue.title || 'Location'}\\n${mapsUrl}`,\n        latitude: lat,\n        longitude: lon,\n        location_title: msg.venue.title || null,\n        location_address: msg.venue.address || null,\n        maps_url: mapsUrl\n      })\n    }\n  ];\n}\n\n// Video note\nif (msg.video_note) {\n  return [\n    {\n      json: basePayload({\n        message_type: 'video_note',\n        message: '[video note]',\n        content: '[video note]',\n        file_id: msg.video_note.file_id,\n        file_unique_id: msg.video_note.file_unique_id,\n        mime_type: 'video/mp4',\n        file_size: msg.video_note.file_size || null,\n        caption: null\n      })\n    }\n  ];\n}\n\n// Photo\nif (msg.photo && msg.photo.length > 0) {\n  const photo = msg.photo[msg.photo.length - 1];\n\n  return [\n    {\n      json: basePayload({\n        message_type: 'photo',\n        message: msg.caption || '[photo]',\n        content: msg.caption || '[photo]',\n        file_id: photo.file_id,\n        file_unique_id: photo.file_unique_id,\n        file_name: 'photo.jpg',\n        mime_type: 'image/jpeg',\n        file_size: photo.file_size || null,\n        caption: msg.caption || null\n      })\n    }\n  ];\n}\n\n// Document / file\nif (msg.document) {\n  return [\n    {\n      json: basePayload({\n        message_type: 'document',\n        message: msg.caption || msg.document.file_name || '[document]',\n        content: msg.caption || msg.document.file_name || '[document]',\n        file_id: msg.document.file_id,\n        file_unique_id: msg.document.file_unique_id,\n        file_name: msg.document.file_name || null,\n        mime_type: msg.document.mime_type || null,\n        file_size: msg.document.file_size || null,\n        caption: msg.caption || null\n      })\n    }\n  ];\n}\n\n// Voice\nif (msg.voice) {\n  return [\n    {\n      json: basePayload({\n        message_type: 'voice',\n        message: msg.caption || '[voice message]',\n        content: msg.caption || '[voice message]',\n        file_id: msg.voice.file_id,\n        file_unique_id: msg.voice.file_unique_id,\n        mime_type: msg.voice.mime_type || 'audio/ogg',\n        file_size: msg.voice.file_size || null,\n        caption: msg.caption || null\n      })\n    }\n  ];\n}\n\n// Audio\nif (msg.audio) {\n  return [\n    {\n      json: basePayload({\n        message_type: 'audio',\n        message: msg.caption || msg.audio.file_name || msg.audio.title || '[audio]',\n        content: msg.caption || msg.audio.file_name || msg.audio.title || '[audio]',\n        file_id: msg.audio.file_id,\n        file_unique_id: msg.audio.file_unique_id,\n        file_name: msg.audio.file_name || msg.audio.title || null,\n        mime_type: msg.audio.mime_type || null,\n        file_size: msg.audio.file_size || null,\n        caption: msg.caption || null\n      })\n    }\n  ];\n}\n\n// Video\nif (msg.video) {\n  return [\n    {\n      json: basePayload({\n        message_type: 'video',\n        message: msg.caption || '[video]',\n        content: msg.caption || '[video]',\n        file_id: msg.video.file_id,\n        file_unique_id: msg.video.file_unique_id,\n        mime_type: msg.video.mime_type || 'video/mp4',\n        file_size: msg.video.file_size || null,\n        caption: msg.caption || null\n      })\n    }\n  ];\n}\n\n// Fallback\nreturn [\n  {\n    json: basePayload({\n      message_type: 'unknown',\n      message: '[unrecognized message]',\n      content: '[unrecognized message]'\n    })\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2288,
+        -176
+      ],
+      "id": "3d511c3a-ff40-4120-a854-02fab8b5908a",
+      "name": "prepare message payload"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "29RmHLQgRiiy7qh4h1h3A",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/29RmHLQgRiiy7qh4h1h3A",
+          "cachedResultName": "AI Analyze Message"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        368,
+        -544
+      ],
+      "id": "c24e6a11-3a1d-4720-8e23-11b43ef3d72e",
+      "name": "AI Analyze message",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $env.TELEGRAM_BOT_TOKEN + '/sendMessage' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    chat_id: $json.chat_id,\n    text:\n      $json.message_type === 'document' || $json.message_type === 'photo'\n        ? \"⏳ Analyzing your file...\\n\\nThis may take a little longer for PDFs, photos, or large documents.\"\n        : \"⏳ Analyzing your message...\"\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -720,
+        -256
+      ],
+      "id": "79e3f675-e8af-4c21-b56e-47ace3044a41",
+      "name": "send processing message"
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $('add user/message').first().json;\nconst telegramResponse = $input.first().json;\n\nconst processingMessageId =\n  telegramResponse.result?.message_id ||\n  telegramResponse.message_id ||\n  null;\n\nreturn [\n  {\n    json: {\n      ...original,\n      processing_message_id: processingMessageId\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        -256
+      ],
+      "id": "9a60e563-62a9-492f-9190-73e8d192cc92",
+      "name": "attach processing message id"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $env.TELEGRAM_BOT_TOKEN + '/editMessageText' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    chat_id: $json.chat_id,\n    message_id: $json.processing_message_id,\n    text: $json.text,\n    reply_markup: {\n      inline_keyboard: $json.inline_keyboard\n    }\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        736,
+        -640
+      ],
+      "id": "4b30941e-d6f3-469e-85cc-a1429768eca8",
+      "name": "edit processing message with keyboard"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH input_data AS (\n  SELECT\n    {{ $json.user_id }}::BIGINT AS user_id,\n    {{ $json.chat_id }}::BIGINT AS chat_id\n),\n\nsettings AS (\n  SELECT\n    enabled,\n    max_messages,\n    window_minutes\n  FROM gnote.message_rate_limit_settings\n  WHERE id = 1\n),\n\nsettings_fallback AS (\n  SELECT\n    COALESCE((SELECT enabled FROM settings), TRUE) AS enabled,\n    COALESCE((SELECT max_messages FROM settings), 10) AS max_messages,\n    COALESCE((SELECT window_minutes FROM settings), 60) AS window_minutes\n),\n\nuser_flags AS (\n  SELECT\n    COALESCE(u.unlimited, FALSE) AS unlimited\n  FROM input_data i\n  LEFT JOIN gnote.users u\n    ON u.id = i.user_id\n),\n\npending_usage AS (\n  SELECT\n    COUNT(*)::INT AS pending_count\n  FROM gnote.pending_messages p\n  CROSS JOIN settings_fallback s\n  WHERE p.user_id = (SELECT user_id FROM input_data)\n    AND p.created_at >= NOW() - make_interval(mins => s.window_minutes)\n),\n\nsaved_usage AS (\n  SELECT\n    COUNT(*)::INT AS saved_count\n  FROM gnote.messages m\n  CROSS JOIN settings_fallback s\n  WHERE m.user_id = (SELECT user_id FROM input_data)\n    AND m.created_at >= NOW() - make_interval(mins => s.window_minutes)\n    AND m.deleted_at IS NULL\n),\n\nusage_sum AS (\n  SELECT\n    (\n      COALESCE((SELECT pending_count FROM pending_usage), 0) +\n      COALESCE((SELECT saved_count FROM saved_usage), 0)\n    )::INT AS used_messages\n),\n\ndecision AS (\n  SELECT\n    i.user_id,\n    i.chat_id,\n\n    s.enabled,\n    s.max_messages,\n    s.window_minutes,\n\n    COALESCE(f.unlimited, FALSE) AS unlimited,\n\n    u.used_messages,\n\n    CASE\n      WHEN s.enabled = FALSE THEN TRUE\n      WHEN COALESCE(f.unlimited, FALSE) = TRUE THEN TRUE\n      WHEN u.used_messages < s.max_messages THEN TRUE\n      ELSE FALSE\n    END AS allowed,\n\n    GREATEST(s.max_messages - u.used_messages, 0) AS remaining_messages\n\n  FROM input_data i\n  CROSS JOIN settings_fallback s\n  CROSS JOIN usage_sum u\n  LEFT JOIN user_flags f ON TRUE\n)\n\nSELECT\n  user_id,\n  chat_id,\n\n  enabled,\n  unlimited,\n  allowed,\n\n  used_messages,\n  max_messages,\n  window_minutes,\n  remaining_messages,\n\n  CASE\n    WHEN allowed THEN NULL\n    ELSE\n      'Limit reached ⚠️' || E'\\n\\n' ||\n      'You can save up to ' || max_messages || ' messages per ' || window_minutes || ' minutes.' || E'\\n' ||\n      'Please try again later.'\n  END AS limit_message\n\nFROM decision;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1696,
+        -272
+      ],
+      "id": "f34e1bc3-86d5-449d-95d9-9d46d2657300",
+      "name": "check message rate limit",
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rate = $input.first().json || {};\n\nlet original = {};\n\ntry {\n  original = $('prepare message payload').first().json || {};\n} catch (e) {\n  original = {};\n}\n\nreturn [\n  {\n    json: {\n      ...original,\n\n      rate_limit_allowed: Boolean(rate.allowed),\n      rate_limit_message: rate.limit_message || null,\n\n      rate_limit: {\n        enabled: rate.enabled,\n        unlimited: rate.unlimited,\n        allowed: rate.allowed,\n        used_messages: rate.used_messages,\n        max_messages: rate.max_messages,\n        window_minutes: rate.window_minutes,\n        remaining_messages: rate.remaining_messages\n      }\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1456,
+        -256
+      ],
+      "id": "1cbcc606-6217-482f-b531-daf8b76cf691",
+      "name": "merge rate limit result"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3c279c5e-ecb6-4fa9-968b-749960e641ed",
+              "leftValue": "={{ $json.rate_limit_allowed === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1200,
+        -224
+      ],
+      "id": "87958dee-a3f6-4ff1-93e3-014273e6331f",
+      "name": "IF rate limit allowed"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $env.TELEGRAM_BOT_TOKEN + '/sendMessage' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    chat_id: $json.chat_id,\n    text: $json.rate_limit_message || 'Limit reached ⚠️\\n\\nPlease try again later.'\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -960,
+        -32
+      ],
+      "id": "d9c9a307-8ba8-4be1-9d6e-9a5399b62d69",
+      "name": "send rate limit warning"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "84e81f39-5333-4d59-9f38-32eeebbf5cb6",
+              "leftValue": "={{ !$json.error && !!$json.text && Array.isArray($json.inline_keyboard) && $json.inline_keyboard.length > 0 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        544,
+        -544
+      ],
+      "id": "bc0e2b46-f8be-4071-83cf-e277ed431f6e",
+      "name": "IF AI Analyze succeeded"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $env.TELEGRAM_BOT_TOKEN + '/editMessageText' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    chat_id: $('attach processing message id').first().json.chat_id,\n    message_id: $('attach processing message id').first().json.processing_message_id,\n    text:\n`⚠️ I couldn't analyze this message right now.\n\nThe AI service may be overloaded. Please try sending it again in a few minutes.\n\nYour message was not saved.`\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        736,
+        -448
+      ],
+      "id": "2e393a52-c9ee-45a5-96e9-27f794d4ad52",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nconst maxBytes = 1024 * 1024; // 1 MB\n\nconst messageType = String(input.message_type || '').toLowerCase();\nconst fileSize = Number(input.file_size || 0);\n\nconst limitedTypes = [\n  'document',\n  'file',\n  'video',\n  'video_note'\n];\n\nconst hasKnownSize = fileSize > 0;\nconst isLimitedType = limitedTypes.includes(messageType);\n\nconst isTooLarge =\n  isLimitedType &&\n  hasKnownSize &&\n  fileSize > maxBytes;\n\nfunction formatBytes(bytes) {\n  const n = Number(bytes || 0);\n\n  if (!n || Number.isNaN(n)) {\n    return 'unknown size';\n  }\n\n  if (n < 1024) {\n    return `${n} B`;\n  }\n\n  if (n < 1024 * 1024) {\n    return `${(n / 1024).toFixed(1)} KB`;\n  }\n\n  return `${(n / 1024 / 1024).toFixed(1)} MB`;\n}\n\nfunction getHumanType(type) {\n  if (type === 'document' || type === 'file') return 'file';\n  if (type === 'video' || type === 'video_note') return 'video';\n  return type || 'file';\n}\n\nlet unsupportedReason = null;\n\nif (isTooLarge) {\n  unsupportedReason =\n    `Unsupported file size ⚠️\\n\\n` +\n    `This bot currently supports videos and files up to 1 MB.\\n\\n` +\n    `Your ${getHumanType(messageType)} size: ${formatBytes(fileSize)}.\\n\\n` +\n    `Please send a smaller file, a photo, a voice note, or a text message instead.`;\n}\n\nreturn [\n  {\n    json: {\n      ...input,\n\n      max_supported_file_size_bytes: maxBytes,\n      max_supported_file_size_human: formatBytes(maxBytes),\n\n      file_size_supported: !isTooLarge,\n      unsupported_large_file: isTooLarge,\n      unsupported_reason: unsupportedReason,\n\n      file_size_human: formatBytes(fileSize)\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2096,
+        -176
+      ],
+      "id": "0273c405-6ff1-408c-a634-6f9a88c8480c",
+      "name": "check file size support"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "73597b66-d0c0-4d2d-a9ca-a264e7cbc522",
+              "leftValue": "={{ $json.file_size_supported === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1904,
+        -176
+      ],
+      "id": "71a8d318-549e-4bcd-bde4-1bd6c732d4c5",
+      "name": "IF file size supported"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $env.TELEGRAM_BOT_TOKEN + '/sendMessage' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    chat_id: $json.chat_id,\n    text: $json.unsupported_reason || 'Unsupported file size ⚠️'\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1728,
+        -64
+      ],
+      "id": "3bfe5898-fa96-4b5c-945d-793d4bab979c",
+      "name": "send unsupported file size warning"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH input_data AS (\n  SELECT\n    {{ $json.user_id }}::BIGINT AS user_id,\n    {{ $json.chat_id }}::BIGINT AS chat_id,\n    'message_analysis'::TEXT AS feature,\n    '{{ String(JSON.stringify({\n      message_type: $json.message_type || null,\n      file_name: $json.file_name || null,\n      mime_type: $json.mime_type || null,\n      pending_message_id: $json.pending_message_id || null\n    })).replace(/'/g, \"''\") }}'::JSONB AS metadata,\n    '{{ String(JSON.stringify($json)).replace(/'/g, \"''\") }}'::JSONB AS original_payload\n),\n\nlimit_row AS (\n  SELECT\n    i.user_id,\n    i.chat_id,\n    i.feature,\n    i.metadata,\n    i.original_payload,\n    COALESCE(l.hourly_limit, 10) AS hourly_limit,\n    COALESCE(l.is_unlimited, FALSE) AS is_unlimited,\n    COALESCE(l.plan, 'free') AS plan\n  FROM input_data i\n  LEFT JOIN gnote.ai_user_limits l\n    ON l.user_id = i.user_id\n),\n\nusage_now AS (\n  SELECT\n    lr.user_id,\n    lr.chat_id,\n    lr.feature,\n    lr.metadata,\n    lr.original_payload,\n    lr.hourly_limit,\n    lr.is_unlimited,\n    lr.plan,\n    COUNT(a.id)::INTEGER AS used_last_hour,\n    MIN(a.created_at) AS first_usage_in_window\n  FROM limit_row lr\n  LEFT JOIN gnote.ai_usage_log a\n    ON a.user_id = lr.user_id\n   AND a.created_at >= NOW() - INTERVAL '1 hour'\n   AND a.status IN ('reserved', 'success')\n  GROUP BY\n    lr.user_id,\n    lr.chat_id,\n    lr.feature,\n    lr.metadata,\n    lr.original_payload,\n    lr.hourly_limit,\n    lr.is_unlimited,\n    lr.plan\n),\n\ndecision AS (\n  SELECT\n    *,\n    (\n      is_unlimited = TRUE\n      OR used_last_hour < hourly_limit\n    ) AS allowed\n  FROM usage_now\n),\n\ninsert_usage AS (\n  INSERT INTO gnote.ai_usage_log (\n    user_id,\n    chat_id,\n    feature,\n    status,\n    metadata\n  )\n  SELECT\n    user_id,\n    chat_id,\n    feature,\n    'reserved',\n    metadata\n  FROM decision\n  WHERE allowed = TRUE\n  RETURNING id\n)\n\nSELECT\n  d.user_id,\n  d.chat_id,\n  d.feature,\n  d.plan,\n  d.hourly_limit,\n  d.is_unlimited,\n  d.used_last_hour,\n\n  CASE\n    WHEN d.allowed = TRUE THEN d.used_last_hour + 1\n    ELSE d.used_last_hour\n  END AS used_after_this_request,\n\n  GREATEST(\n    d.hourly_limit -\n    CASE\n      WHEN d.allowed = TRUE THEN d.used_last_hour + 1\n      ELSE d.used_last_hour\n    END,\n    0\n  ) AS remaining_after_this_request,\n\n  d.allowed,\n\n  COALESCE(\n    d.first_usage_in_window + INTERVAL '1 hour',\n    NOW() + INTERVAL '1 hour'\n  ) AS reset_at,\n\n  (\n    SELECT id\n    FROM insert_usage\n    LIMIT 1\n  ) AS ai_usage_id,\n\n  d.original_payload\n\nFROM decision d;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -272,
+        -256
+      ],
+      "id": "1b195515-b663-4845-9c76-2dc0bde1cefe",
+      "name": "Check AI quota - message analysis",
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c4626143-122b-44e9-8dd5-ad451fe145b1",
+              "leftValue": "={{ $json.allowed === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -64,
+        -256
+      ],
+      "id": "224ad62c-c18d-45db-a86e-4d5158230ae4",
+      "name": "IF AI quota allowed - message analysis"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nconst original =\n  typeof input.original_payload === 'object'\n    ? input.original_payload\n    : {};\n\nreturn [\n  {\n    json: {\n      ...original,\n\n      ai_usage_id: input.ai_usage_id || null,\n      ai_quota_feature: input.feature || 'message_analysis',\n      ai_quota_plan: input.plan || 'free',\n      ai_quota_limit: Number(input.hourly_limit || 10),\n      ai_quota_used: Number(input.used_after_this_request || 0),\n      ai_quota_remaining: Number(input.remaining_after_this_request || 0),\n      ai_quota_reset_at: input.reset_at || null\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        -544
+      ],
+      "id": "fa77670e-b726-4191-8c6b-5f0d92010b34",
+      "name": "Restore AI quota payload - message analysis"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nconst userId = input.user_id;\nconst chatId = input.chat_id || userId;\n\nfunction formatReset(value) {\n  if (!value) return 'within about 1 hour';\n\n  const date = new Date(value);\n  if (Number.isNaN(date.getTime())) return 'within about 1 hour';\n\n  return date.toLocaleTimeString('en-GB', {\n    hour: '2-digit',\n    minute: '2-digit'\n  });\n}\n\nconst limit = Number(input.hourly_limit || 10);\nconst used = Number(input.used_last_hour || 0);\nconst resetAt = formatReset(input.reset_at);\n\nconst text =\n`AI limit reached.\n\nYou used ${used}/${limit} AI requests in the last hour.\n\nPlease try again after ${resetAt}.\n\nRegular search by 1–2 words can still work without AI.`;\n\nreturn [\n  {\n    json: {\n      user_id: userId,\n      chat_id: chatId,\n      text\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        -240
+      ],
+      "id": "82cd780a-2ba5-410d-a8f6-ee635e6bf441",
+      "name": "Build AI quota limit warning2"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        352,
+        -240
+      ],
+      "id": "fd76e2b6-87cd-4566-9335-fbba011aaa05",
+      "name": "Send AI quota limit warning2",
+      "webhookId": "6ddcb466-66b3-4d6c-ace6-7f14feb8b023",
+      "credentials": {
+        "telegramApi": {
+          "id": "L6tMdX179iCyx0Bk",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -2576,
+        -176
+      ],
+      "id": "d9e83468-83c0-42e5-8e9f-ae9da4fb06c6",
+      "name": "When Executed by Another Workflow"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "add user/message": {
+      "main": [
+        [
+          {
+            "node": "send processing message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "prepare message payload": {
+      "main": [
+        [
+          {
+            "node": "check file size support",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze message": {
+      "main": [
+        [
+          {
+            "node": "IF AI Analyze succeeded",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send processing message": {
+      "main": [
+        [
+          {
+            "node": "attach processing message id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "attach processing message id": {
+      "main": [
+        [
+          {
+            "node": "Check AI quota - message analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check message rate limit": {
+      "main": [
+        [
+          {
+            "node": "merge rate limit result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "merge rate limit result": {
+      "main": [
+        [
+          {
+            "node": "IF rate limit allowed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF rate limit allowed": {
+      "main": [
+        [
+          {
+            "node": "add user/message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "send rate limit warning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF AI Analyze succeeded": {
+      "main": [
+        [
+          {
+            "node": "edit processing message with keyboard",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check file size support": {
+      "main": [
+        [
+          {
+            "node": "IF file size supported",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF file size supported": {
+      "main": [
+        [
+          {
+            "node": "check message rate limit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "send unsupported file size warning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check AI quota - message analysis": {
+      "main": [
+        [
+          {
+            "node": "IF AI quota allowed - message analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF AI quota allowed - message analysis": {
+      "main": [
+        [
+          {
+            "node": "Restore AI quota payload - message analysis",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build AI quota limit warning2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restore AI quota payload - message analysis": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build AI quota limit warning2": {
+      "main": [
+        [
+          {
+            "node": "Send AI quota limit warning2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "prepare message payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "24c0b108-c6db-45f6-ac3d-85c3598aae7b",
+  "meta": {
+    "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"
+  },
+  "id": "-1cBsbb0Ll74820trSH2X",
+  "tags": []
+}
