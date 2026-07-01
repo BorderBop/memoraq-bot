@@ -1,0 +1,559 @@
+{
+  "name": "AI Analyze Message",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -992,
+        -64
+      ],
+      "id": "8e96a64f-ceff-454b-b63a-769fabdfc053",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "17efc810-aa11-44b1-a1f1-a044cec675a3",
+              "leftValue": "={{ $json.should_analyze_file === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -576,
+        -64
+      ],
+      "id": "3a09f606-ebe9-49df-a90c-7d02b2dfb060",
+      "name": "IF should analyze file"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.telegram.org/bot' + $env.TELEGRAM_BOT_TOKEN + '/getFile?file_id=' + $json.file_id }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -368,
+        -160
+      ],
+      "id": "283d9c1b-d3eb-4660-bf45-153286ffde5a",
+      "name": "Telegram getFile"
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.telegram.org/file/bot' + $env.TELEGRAM_BOT_TOKEN + '/' + $json.result.file_path }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -160,
+        -160
+      ],
+      "id": "ad7ac01a-d9ee-460d-b6c9-c750a016acba",
+      "name": "Download Telegram file"
+    },
+    {
+      "parameters": {
+        "jsCode": "const currentItem = $input.first();\nconst current = currentItem.json || {};\n\nlet original = {};\ntry {\n  original = $('Decide AI mode').first().json || {};\n} catch (e) {\n  original = {};\n}\n\nconst item = {\n  ...original,\n  ...current,\n\n  user_id: original.user_id || current.user_id,\n  chat_id: original.chat_id || current.chat_id,\n  pending_message_id: original.pending_message_id || current.pending_message_id,\n  message_uuid: original.message_uuid || current.message_uuid,\n\n  message_type: original.message_type || current.message_type,\n  file_id: original.file_id || current.file_id,\n  file_unique_id: original.file_unique_id || current.file_unique_id,\n  file_name: original.file_name || current.file_name,\n  mime_type: original.mime_type || current.mime_type,\n  caption: original.caption || current.caption,\n  message: original.message || current.message,\n  content: original.content || current.content,\n\n  telegram_file_path:\n    current.result?.file_path ||\n    current.file_path ||\n    original.telegram_file_path ||\n    current.telegram_file_path,\n\n  file_url: original.file_url || current.file_url\n};\n\nfunction firstValue(...values) {\n  for (const value of values) {\n    if (value !== undefined && value !== null && value !== '') {\n      return value;\n    }\n  }\n  return null;\n}\n\nfunction safeString(value, fallback = '') {\n  if (value === undefined || value === null) return fallback;\n  return String(value);\n}\n\nfunction getExtension(fileName) {\n  const match = safeString(fileName).toLowerCase().match(/\\.([a-z0-9]+)$/);\n  return match ? match[1] : '';\n}\n\nfunction uniqueArray(values) {\n  return [\n    ...new Set(\n      values\n        .filter(v => v !== undefined && v !== null && String(v).trim() !== '')\n        .map(v => String(v).trim())\n    )\n  ];\n}\n\nfunction truncateText(text, maxChars) {\n  const str = safeString(text);\n  if (str.length <= maxChars) return str;\n\n  return (\n    str.slice(0, maxChars) +\n    `\\n\\n[Content truncated to ${maxChars} characters for safe AI analysis]`\n  );\n}\n\nfunction normalizeMimeType(mimeType, ext, messageType) {\n  const mt = safeString(mimeType).toLowerCase();\n\n  if (mt && mt !== 'application/octet-stream') {\n    return mt;\n  }\n\n  if (messageType === 'photo') {\n    if (ext === 'png') return 'image/png';\n    if (ext === 'webp') return 'image/webp';\n    if (ext === 'heic') return 'image/heic';\n    return 'image/jpeg';\n  }\n\n  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';\n  if (ext === 'png') return 'image/png';\n  if (ext === 'webp') return 'image/webp';\n  if (ext === 'heic') return 'image/heic';\n\n  if (ext === 'pdf') return 'application/pdf';\n  if (ext === 'json') return 'application/json';\n  if (ext === 'xml') return 'application/xml';\n  if (ext === 'txt') return 'text/plain';\n  if (ext === 'csv') return 'text/csv';\n\n  return mimeType || 'application/octet-stream';\n}\n\nasync function findBinaryData() {\n  const binary = currentItem.binary || {};\n  const keys = Object.keys(binary);\n\n  if (keys.length === 0) {\n    return null;\n  }\n\n  const propertyName = keys.includes('data') ? 'data' : keys[0];\n  const binaryMeta = binary[propertyName];\n\n  if (!binaryMeta) {\n    return null;\n  }\n\n  let buffer;\n\n  try {\n    buffer = await this.helpers.getBinaryDataBuffer(0, propertyName);\n  } catch (error) {\n    return {\n      data: null,\n      mimeType: binaryMeta.mimeType || binaryMeta.mime_type || null,\n      fileName: binaryMeta.fileName || binaryMeta.file_name || null,\n      fileSize: null,\n      source: 'binary_buffer_read_failed',\n      propertyName,\n      error: error.message\n    };\n  }\n\n  return {\n    data: buffer.toString('base64'),\n    mimeType: binaryMeta.mimeType || binaryMeta.mime_type || null,\n    fileName: binaryMeta.fileName || binaryMeta.file_name || null,\n    fileSize: buffer.length,\n    source: 'binary_buffer_from_n8n_separate_mode',\n    propertyName,\n    error: null\n  };\n}\n\nconst userId = firstValue(item.user_id, item.from_id);\nconst chatId = firstValue(item.chat_id, userId);\n\nconst pendingMessageId = firstValue(item.pending_message_id, item.id);\nconst messageUuid = firstValue(item.message_uuid);\n\nconst messageType = safeString(item.message_type || 'document').toLowerCase();\n\nlet fileName = safeString(\n  item.file_name ||\n  item.message ||\n  item.content ||\n  item.telegram_file_path ||\n  'file'\n);\n\nif (messageType === 'photo' && (!fileName || fileName === '[photo]')) {\n  fileName = 'photo.jpg';\n}\n\nconst ext = getExtension(fileName || item.telegram_file_path);\n\nlet mimeType = safeString(item.mime_type || 'application/octet-stream');\nmimeType = normalizeMimeType(mimeType, ext, messageType);\n\nconst caption = safeString(item.caption || '');\nconst telegramFilePath = safeString(item.telegram_file_path || '');\nconst fileUrl = safeString(item.file_url || '');\nconst originalMessage = safeString(item.message || item.content || caption || fileName);\n\nconst binaryData = await findBinaryData();\n\nif (binaryData?.mimeType) {\n  mimeType = normalizeMimeType(binaryData.mimeType, ext, messageType);\n}\n\nconst isInlineSupportedFile =\n  messageType === 'photo' ||\n  mimeType.startsWith('image/') ||\n  mimeType === 'application/pdf' ||\n  ['jpg', 'jpeg', 'png', 'webp', 'heic', 'pdf'].includes(ext);\n\nconst supportedGeminiInlineMimeTypes = [\n  'image/jpeg',\n  'image/png',\n  'image/webp',\n  'image/heic',\n  'application/pdf'\n];\n\nconst hasInlineData =\n  isInlineSupportedFile &&\n  Boolean(binaryData?.data) &&\n  supportedGeminiInlineMimeTypes.includes(mimeType);\n\nconst readableContent = safeString(\n  item.extracted_text ||\n  item.file_text ||\n  item.downloaded_text ||\n  item.text_content ||\n  item.content_for_ai ||\n  ''\n);\n\nconst readableContentForAi = truncateText(readableContent, 12000);\n\nconst technicalExtensions = [\n  'json', 'xml', 'sql', 'js', 'ts', 'tsx', 'jsx', 'yaml', 'yml', 'csv', 'txt', 'md', 'html', 'css', 'log', 'env'\n];\n\nconst documentExtensions = [\n  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'\n];\n\nconst oldBinaryExtensions = ['doc', 'xls', 'ppt'];\n\nconst isTechnicalFile =\n  technicalExtensions.includes(ext) ||\n  mimeType.includes('json') ||\n  mimeType.includes('xml') ||\n  mimeType.includes('text') ||\n  mimeType.includes('csv') ||\n  mimeType.includes('yaml');\n\nconst isDocumentFile =\n  documentExtensions.includes(ext) ||\n  mimeType.includes('pdf') ||\n  mimeType.includes('word') ||\n  mimeType.includes('officedocument') ||\n  mimeType.includes('excel') ||\n  mimeType.includes('spreadsheet') ||\n  mimeType.includes('powerpoint') ||\n  mimeType.includes('presentation');\n\nconst isOldBinaryFile = oldBinaryExtensions.includes(ext);\n\nconst looksLikeN8nWorkflow =\n  fileName.toLowerCase().includes('workflow') ||\n  fileName.toLowerCase().includes('n8n') ||\n  readableContent.includes('\"nodes\"') ||\n  readableContent.includes('\"connections\"') ||\n  readableContent.includes('\"type\": \"n8n-nodes-base');\n\nconst looksLikeDatabaseSchema =\n  ext === 'sql' ||\n  readableContent.toLowerCase().includes('create table') ||\n  readableContent.toLowerCase().includes('alter table') ||\n  readableContent.toLowerCase().includes('create schema');\n\nconst looksLikeConfig =\n  ['json', 'xml', 'yaml', 'yml', 'env'].includes(ext) ||\n  fileName.toLowerCase().includes('config') ||\n  fileName.toLowerCase().includes('settings');\n\nconst shouldAnalyzeFileInitial = item.should_analyze_file !== false;\n\nconst skipGeminiAnalysis =\n  !shouldAnalyzeFileInitial ||\n  (isOldBinaryFile && !readableContent);\n\nconst fallbackMetadata = {\n  summary: `File saved: ${fileName}`,\n  category: ext === 'pdf' ? 'document' : (isInlineSupportedFile ? 'photo' : 'file'),\n  language: 'unknown',\n  entities: uniqueArray([\n    looksLikeN8nWorkflow ? 'n8n' : null,\n    fileName.toLowerCase().includes('memoraq') ? 'Memoraq' : null\n  ]),\n  important_details: uniqueArray([\n    `File name: ${fileName}`,\n    `File extension: ${ext || 'unknown'}`,\n    `MIME type: ${mimeType}`\n  ]),\n  confidence: hasInlineData ? 0.6 : 0.35\n};\n\nif (skipGeminiAnalysis) {\n  return [\n    {\n      json: {\n        ...item,\n        user_id: userId,\n        chat_id: chatId,\n        pending_message_id: pendingMessageId,\n        message_uuid: messageUuid,\n        message_type: messageType,\n        file_name: fileName,\n        mime_type: mimeType,\n        caption,\n        telegram_file_path: telegramFilePath,\n        file_url: fileUrl,\n        file_extension: ext,\n        ai_mode: 'fallback',\n        should_analyze_file: false,\n        skip_gemini_analysis: true,\n        ai_summary: fallbackMetadata.summary,\n        ai_category: fallbackMetadata.category,\n        ai_language: fallbackMetadata.language,\n        ai_entities: fallbackMetadata.entities,\n        ai_important_details: fallbackMetadata.important_details,\n        ai_confidence: fallbackMetadata.confidence\n      }\n    }\n  ];\n}\n\nlet prompt = `\nYou are an expert AI data extractor. Your task is to analyze the attached file/image and extract its metadata.\n\nCRITICAL INSTRUCTIONS FOR LANGUAGE DETECTION:\n1. First, visually inspect and perform OCR on the image to read the actual text written inside the document.\n2. Identify the language of the text inside the document (e.g., if it contains Hebrew characters, it MUST be \"he\"; if Cyrillic, \"ru\"; if Hanzi, \"zh\").\n3. Do NOT default to \"en\" just because this prompt is in English. The \"language\" field MUST strictly represent the language of the original uploaded document.\n\nReturn a JSON object strictly matching this schema:\n{\n  \"summary\": \"Strictly 1-2 concise sentences in English capturing ONLY the core concept of the document (what it is and who issued it). Maximum 250 characters. Do not write long explanations or non-essential details.\"\n  \"category\": \"One-word category in English.\",\n  \"detected_type\": \"document\",\n  \"language\": \"Strictly the two-letter ISO 639-1 code of the ORIGINAL document text (e.g., 'he', 'ru', 'en', 'zh').\",\n  \"keywords\": [\"array\", \"of\", \"relevant\", \"keywords\", \"in\", \"English\"]\n}\n\nRespond ONLY with the raw JSON object. Do not include markdown code blocks (like \\`\\`\\`json).\n`.trim();\n\nconst parts = [\n  {\n    text: prompt\n  }\n];\n\nif (hasInlineData) {\n  parts.push({\n    inline_data: {\n      mime_type: mimeType,\n      data: binaryData.data\n    }\n  });\n}\n\nconst geminiRequestBody = {\n  contents: [\n    {\n      role: 'user',\n      parts\n    }\n  ],\n  generationConfig: {\n    temperature: 0.05, // Понижаем температуру до минимума для максимальной строгости\n    topK: 1,\n    topP: 0.1,\n    maxOutputTokens: 2048,\n    responseMimeType: 'application/json'\n  }\n};\n\nreturn [\n  {\n    json: {\n      ...item,\n      user_id: userId,\n      chat_id: chatId,\n      pending_message_id: pendingMessageId,\n      message_uuid: messageUuid,\n      message_type: messageType,\n      file_name: fileName,\n      mime_type: mimeType,\n      caption,\n      telegram_file_path: telegramFilePath,\n      file_url: fileUrl,\n      file_extension: ext,\n      is_image_file: mimeType.startsWith('image/'),\n      has_inline_image: hasInlineData,\n      ai_mode: 'file',\n      should_analyze_file: true,\n      skip_gemini_analysis: false,\n      gemini_request_body: geminiRequestBody,\n      gemini_parts_count: parts.length\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        -336
+      ],
+      "id": "647113ee-9dfe-48c2-a6f6-c6036a0a6573",
+      "name": "Prepare Gemini file request"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5e56cc4f-6ecb-4e57-884b-848940c85e42",
+              "leftValue": "={{ $json.skip_gemini_analysis === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        256,
+        -160
+      ],
+      "id": "d544ec5f-3b00-4aaa-84ec-1f7883b3fab9",
+      "name": "IF skip Gemini analysis"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json || {};\n\nconst metadata =\n  item.fallback_metadata ||\n  {\n    summary: item.ai_summary || `File saved: ${item.file_name || 'file'}`,\n    category: item.ai_category || 'file',\n    language: item.ai_language || 'unknown',\n    keywords: item.ai_keywords || [item.file_name || 'file'],\n    entities: item.ai_entities || [],\n    important_details: item.ai_important_details || [],\n    confidence: item.ai_confidence || 0.3\n  };\n\nreturn [\n  {\n    json: {\n      ...item,\n\n      ai_mode: 'fallback',\n      gemini_failed: false,\n      gemini_skipped: true,\n\n      ai_summary: metadata.summary,\n      ai_category: metadata.category,\n      ai_language: metadata.language,\n      ai_keywords: metadata.keywords,\n      ai_entities: metadata.entities,\n      ai_important_details: metadata.important_details,\n      ai_confidence: metadata.confidence,\n\n      ai_raw_json: {\n        fallback: true,\n        reason: item.skip_gemini_reason || 'gemini_analysis_skipped',\n        file_name: item.file_name,\n        mime_type: item.mime_type,\n        extension: item.file_extension\n      },\n\n      ai_raw_text: JSON.stringify(metadata),\n      text: JSON.stringify(metadata)\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        464,
+        -256
+      ],
+      "id": "d526810b-b4f7-4ef1-8d4e-42df2b4be39d",
+      "name": "Return unsupported file analysis"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "=json",
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "jsonBody": "={{ $json.gemini_request_body }}",
+        "options": {
+          "timeout": 160000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        416,
+        -80
+      ],
+      "id": "e71ebdbf-d8a9-402c-ae3e-e9d97c1ae72d",
+      "name": "Gemini analyze file",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "9bevO9NORDAKzO7X",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nlet source = {};\ntry {\n  source = $('Prepare Gemini file request').first().json || {};\n} catch (e) {\n  source = {};\n}\n\nfunction firstValue(...values) {\n  for (const value of values) {\n    if (value !== undefined && value !== null && value !== '') {\n      return value;\n    }\n  }\n  return null;\n}\n\nfunction safeString(value, fallback = '') {\n  if (value === undefined || value === null) return fallback;\n  return String(value);\n}\n\nfunction parseJsonFromText(text) {\n  const raw = String(text || '').replace(/^```json\\s*/i, '').replace(/^```\\s*/i, '').replace(/```$/i, '').trim();\n  if (!raw) return null;\n  try {\n    return JSON.parse(raw);\n  } catch (e) {}\n  const match = raw.match(/\\{[\\s\\S]*\\}/);\n  if (match) {\n    try {\n      return JSON.parse(match[0]);\n    } catch (e) {}\n  }\n  return null;\n}\n\nfunction cleanString(value, maxLength = 600) {\n  const str = safeString(value).replace(/\\s+/g, ' ').trim();\n  if (str.length <= maxLength) return str;\n  return str.slice(0, maxLength).trim();\n}\n\nconst summary = cleanString(input.ai_summary || '', 600);\nconst category = cleanString(input.ai_category || 'document', 50).toLowerCase();\nconst language = cleanString(input.ai_language || 'en', 20).toLowerCase();\nconst entities = Array.isArray(input.ai_entities) ? input.ai_entities : [];\nconst importantDetails = Array.isArray(input.ai_important_details) ? input.ai_important_details : [];\n\n// Строим чистый слепок текста для TSVECTOR без Ключевых Слов\nconst aiContent = [\n  `Source mode: file`,\n  `Message type: ${source.message_type || 'document'}`,\n  source.file_name ? `File name: ${source.file_name}` : null,\n  source.mime_type ? `MIME type: ${source.mime_type}` : null,\n  `Summary: ${summary}`,\n  `Category: ${category}`,\n  `Language: ${language}`,\n  entities.length ? `Entities: ${entities.join(', ')}` : null,\n  importantDetails.length ? `Important details: ${JSON.stringify(importantDetails)}` : null\n]\n  .filter(Boolean)\n  .join('\\n');\n\nreturn [\n  {\n    json: {\n      ...source,\n      ...input,\n      message_for_ai: aiContent,\n      ai_content: aiContent,\n      ai_keywords: [] // Гарантируем пустоту\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        -80
+      ],
+      "id": "0167a0e9-01af-4e39-80e7-26e799542b64",
+      "name": "Parse file analysis"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nfunction firstValue(...values) {\n  for (const value of values) {\n    if (value !== undefined && value !== null && value !== '') {\n      return value;\n    }\n  }\n  return null;\n}\n\nconst messageType = String(firstValue(input.message_type, 'text')).toLowerCase();\n\nconst fileId = firstValue(\n  input.file_id,\n  input.video_file_id,\n  input.voice_file_id,\n  input.audio_file_id,\n  input.document_file_id,\n  input.photo_file_id\n);\n\nconst fileUniqueId = firstValue(\n  input.file_unique_id,\n  input.video_file_unique_id,\n  input.voice_file_unique_id,\n  input.audio_file_unique_id,\n  input.document_file_unique_id,\n  input.photo_file_unique_id\n);\n\nconst supportedFileMessageTypes = [\n  'photo',\n  'document',\n  'voice',\n  'audio',\n  'video',\n  'video_note'\n];\n\nconst shouldAnalyzeFile =\n  Boolean(fileId) &&\n  supportedFileMessageTypes.includes(messageType);\n\nlet aiModeReason = '';\n\nif (!fileId) {\n  aiModeReason = `No file_id found for message_type=${messageType}`;\n} else if (!supportedFileMessageTypes.includes(messageType)) {\n  aiModeReason = `Unsupported message_type=${messageType}`;\n} else {\n  aiModeReason = `File analysis enabled for message_type=${messageType}`;\n}\n\nreturn [\n  {\n    json: {\n      ...input,\n      file_id: fileId,\n      file_unique_id: fileUniqueId,\n      message_type: messageType,\n      should_analyze_file: shouldAnalyzeFile,\n      ai_mode: shouldAnalyzeFile ? 'file' : 'text',\n      ai_mode_reason: aiModeReason\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -784,
+        -64
+      ],
+      "id": "d21bbec2-d32f-4f92-9bd7-5cff70173019",
+      "name": "Decide AI mode"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nfunction firstValue(...values) {\n  for (const value of values) {\n    if (value !== undefined && value !== null && value !== '') {\n      return value;\n    }\n  }\n  return null;\n}\n\nfunction safeString(value, fallback = '') {\n  if (value === undefined || value === null) return fallback;\n  return String(value);\n}\n\nfunction uniqueArray(values) {\n  return [\n    ...new Set(\n      values\n        .filter(v => v !== undefined && v !== null && String(v).trim() !== '')\n        .map(v => String(v).trim())\n    )\n  ];\n}\n\nfunction truncateText(text, maxChars) {\n  const str = safeString(text);\n  if (str.length <= maxChars) return str;\n\n  return (\n    str.slice(0, maxChars) +\n    `\\n\\n[Content truncated to ${maxChars} characters for safe AI analysis]`\n  );\n}\n\nconst userId = firstValue(input.user_id, input.from_id);\nconst chatId = firstValue(input.chat_id, userId);\n\nconst pendingMessageId = firstValue(input.pending_message_id, input.id);\nconst messageUuid = firstValue(input.message_uuid);\n\nconst messageType = safeString(input.message_type || 'text').toLowerCase();\n\nconst parts = [];\n\nif (input.ai_prompt_input) {\n  parts.push(`AI prompt input:\\n${safeString(input.ai_prompt_input)}`);\n}\n\nif (input.raw_text) {\n  parts.push(`Raw text:\\n${safeString(input.raw_text)}`);\n}\n\nif (input.content) {\n  parts.push(`Content:\\n${safeString(input.content)}`);\n}\n\nif (input.message) {\n  parts.push(`Message:\\n${safeString(input.message)}`);\n}\n\nif (input.caption) {\n  parts.push(`Caption:\\n${safeString(input.caption)}`);\n}\n\nif (input.location_title) {\n  parts.push(`Location title:\\n${safeString(input.location_title)}`);\n}\n\nif (input.location_address) {\n  parts.push(`Location address:\\n${safeString(input.location_address)}`);\n}\n\nif (input.maps_url) {\n  parts.push(`Map URL:\\n${safeString(input.maps_url)}`);\n}\n\nif (input.url) {\n  parts.push(`URL:\\n${safeString(input.url)}`);\n}\n\nif (input.link) {\n  parts.push(`Link:\\n${safeString(input.link)}`);\n}\n\nif (input.forward_from) {\n  parts.push(`Forwarded from:\\n${safeString(input.forward_from)}`);\n}\n\nif (input.forward_sender_name) {\n  parts.push(`Forward sender name:\\n${safeString(input.forward_sender_name)}`);\n}\n\nif (parts.length === 0) {\n  parts.push(`Message type: ${messageType}`);\n}\n\nconst messageForAI = truncateText(parts.join('\\n\\n'), 12000);\n\nconst looksLikeTechnicalMessage =\n  /n8n|telegram bot|api|database|postgres|sql|server|docker|kubernetes|javascript|typescript|python|node|workflow|automation|webhook|json|function|code|error|bug|github|gitlab|devops/i.test(messageForAI);\n\nconst looksLikeFinanceMessage =\n  /invoice|payment|bank|salary|tax|vat|price|cost|eur|usd|rub|ils|cny|amount|transfer|currency|margin|fee|commission/i.test(messageForAI);\n\nconst looksLikeLegalMessage =\n  /contract|agreement|claim|court|law|legal|rights|regulation|terms|policy|lawsuit|attorney|lawyer/i.test(messageForAI);\n\nconst looksLikeCareerMessage =\n  /cv|resume|interview|job|career|hr|recruiter|salary negotiation|linkedin|position|vacancy/i.test(messageForAI);\n\nconst fallbackMetadata = {\n  summary: 'Telegram text message saved for AI memory indexing.',\n  category: looksLikeTechnicalMessage\n    ? 'technical'\n    : looksLikeFinanceMessage\n      ? 'finance'\n      : looksLikeLegalMessage\n        ? 'legal'\n        : looksLikeCareerMessage\n          ? 'career'\n          : 'note',\n  language: 'unknown',\n  entities: uniqueArray([\n    looksLikeTechnicalMessage ? 'technical' : null,\n    looksLikeFinanceMessage ? 'finance' : null,\n    looksLikeLegalMessage ? 'legal' : null,\n    looksLikeCareerMessage ? 'career' : null\n  ]),\n  important_details: [],\n  confidence: 0.35\n};\n\nconst prompt = `\nYou are an expert AI data extractor. Your task is to analyze the Telegram text message and extract useful metadata for a personal AI memory bot called Memoraq.\n\nThe extracted data will be stored in PostgreSQL and used for full-text search and semantic retrieval.\n\nCRITICAL INSTRUCTIONS FOR LANGUAGE DETECTION:\n1. Identify the language of the ORIGINAL message text.\n2. If the message contains Hebrew characters, language MUST be \"he\".\n3. If the message contains Cyrillic, language MUST be \"ru\".\n4. If the message contains Hanzi / Chinese characters, language MUST be \"zh\".\n5. Do NOT default to \"en\" just because this prompt is in English.\n\nMESSAGE TYPE:\n${messageType}\n\nUSER ID:\n${userId || 'unknown'}\n\nMESSAGE CONTENT:\n${messageForAI}\n\nReturn a JSON object strictly matching this schema:\n{\n  \"summary\": \"ONE short sentence in English. Maximum 200 characters. No background, no explanation, no consequences.\",\n  \"category\": \"recipe | technical | finance | legal | career | travel | personal | document | photo | shopping | health | task | note | other | business_card\",\n  \"detected_type\": \"text_message | note | location | link | task | other\",\n  \"language\": \"Strictly the two-letter ISO 639-1 code of the ORIGINAL message text, e.g. 'he', 'ru', 'en', 'zh', or 'unknown'.\",\n  \"entities\": [\"array of people, companies, brands, places, products, technologies, documents, IDs, URLs or other named entities\"],\n  \"important_details\": [\n    {\n      \"label\": \"date | amount | company | person | location | phone | email | position | document_number | product | link | technology | other\",\n      \"value\": \"important detail value\"\n    }\n  ],\n  \"visible_or_extracted_text\": \"The original meaningful message text, cleaned. If unavailable, null.\",\n  \"confidence\": 0.85\n}\n\nCATEGORY RULES:\n1. If the message is about code, servers, APIs, automation, n8n, Telegram bot, databases, DevOps, cloud or technical errors, use \"technical\".\n2. If the message is about money, taxes, invoices, payments, bank, salary, investments, pricing or margins, use \"finance\".\n3. If the message is about contracts, rights, claims, agreements, court, regulations or legal documents, use \"legal\".\n4. If the message is about CV, resume, job search, interviews, HR or salary negotiation, use \"career\".\n5. If the message includes a place, route, hotel, flight, map or trip plan, use \"travel\".\n6. If the message is a reminder, request, todo or instruction, use \"task\".\n7. Category must describe the content, not the Telegram message type.\n\nIMPORTANT RULES:\n1. \"summary\" is mandatory.\n2. Summary must summarize the actual content, not repeat it word-for-word.\n3. Extract all useful entities.\n4. Extract important numbers, dates, links, amounts, companies and product names.\n5. Do not suggest or create new topics.\n6. Do not return fields named action, suggested_topic_id, suggested_topic_title, new_topic_title, keywords or topics.\n7. Confidence must be a number between 0 and 1.\n8. Respond ONLY with the raw JSON object.\n9. Do not include markdown code blocks.\n`.trim();\n\nconst geminiRequestBody = {\n  contents: [\n    {\n      role: 'user',\n      parts: [\n        {\n          text: prompt\n        }\n      ]\n    }\n  ],\n  generationConfig: {\n    temperature: 0.05,\n    topK: 1,\n    topP: 0.1,\n    maxOutputTokens: 2048,\n    responseMimeType: 'application/json'\n  }\n};\n\nreturn [\n  {\n    json: {\n      ...input,\n\n      user_id: userId,\n      chat_id: chatId,\n      pending_message_id: pendingMessageId,\n      message_uuid: messageUuid,\n\n      message_type: messageType,\n\n      message_for_ai: messageForAI,\n      ai_source_mode: 'text',\n      ai_mode: 'text',\n\n      should_analyze_file: false,\n      skip_gemini_analysis: false,\n\n      fallback_metadata: fallbackMetadata,\n\n      gemini_request_body: geminiRequestBody,\n      gemini_parts_count: 1\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        32
+      ],
+      "id": "063aae3d-e241-4f0f-b9c3-22fba89eddb0",
+      "name": "Prepare Gemini text request"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "=json",
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "jsonBody": "={{ $json.gemini_request_body }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -176,
+        32
+      ],
+      "id": "a0d71e6b-00f6-4395-afec-6b868168fb37",
+      "name": "Gemini analyze message",
+      "retryOnFail": true,
+      "credentials": {
+        "googlePalmApi": {
+          "id": "9bevO9NORDAKzO7X",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const source = $input.first().json;\nconst response = $input.first().json;\n\nlet original;\ntry {\n  original = $('Prepare Gemini file request').first().json;\n} catch (e) {\n  try {\n    original = $('Prepare Gemini text request').first().json;\n  } catch (e2) {\n    original = source;\n  }\n}\n\nlet raw = '';\ntry {\n  // Вытаскиваем текст ответа из стандартной структуры Google Gemini API\n  if (response.candidates?.[0]?.content?.parts?.[0]?.text) {\n    raw = response.candidates[0].content.parts[0].text;\n  } else if (response.text) {\n    raw = response.text;\n  } else if (typeof response === 'string') {\n    raw = response;\n  } else {\n    raw = JSON.stringify(response);\n  }\n} catch (e) {\n  raw = '';\n}\n\n// Убираем любые возможные markdown-обертки ИИ\nraw = String(raw || '')\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/```$/i, '')\n  .trim();\n\nlet parsed = null;\ntry {\n  parsed = JSON.parse(raw);\n} catch (e) {\n  const match = raw.match(/\\{[\\s\\S]*\\}/);\n  if (match) {\n    try {\n      parsed = JSON.parse(match[0]);\n    } catch (e2) {\n      parsed = null;\n    }\n  }\n}\n\n// Если распарсить всё равно не удалось, собираем дефолтную структуру\nif (!parsed || typeof parsed !== 'object') {\n  parsed = {\n    summary: raw || 'The message was analyzed, but the AI response structure was flat text.',\n    category: original.file_extension === 'pdf' ? 'document' : 'note',\n    detected_type: original.message_type || 'other',\n    language: 'unknown',\n    entities: [],\n    important_details: [],\n    confidence: 0.5\n  };\n}\n\nfunction cleanString(value, maxLength = 500) {\n  return String(value || '')\n    .replace(/\\s+/g, ' ')\n    .trim()\n    .slice(0, maxLength);\n}\n\nconst allowedCategories = [\n  'recipe', 'technical', 'finance', 'legal', 'career', 'travel', 'personal', 'document', 'photo', 'shopping', 'health', 'task', 'note', 'other', 'business_card'\n];\n\nlet category = cleanString(parsed.category || 'note', 40).toLowerCase();\nif (!allowedCategories.includes(category)) {\n  category = 'other';\n}\n\nconst messageText = String(\n  original.message_for_ai || original.raw_text || original.content || original.message || ''\n).replace(/\\s+/g, ' ').trim();\n\nlet summary = cleanString(parsed.summary, 600);\nif (!summary) {\n  summary = messageText ? messageText.slice(0, 180) : 'Saved Telegram message.';\n}\n\nconst language = cleanString(parsed.language || 'unknown', 20).toLowerCase();\nconst entities = Array.isArray(parsed.entities) ? parsed.entities.map(e => cleanString(e, 100)) : [];\nconst importantDetails = Array.isArray(parsed.important_details)\n  ? parsed.important_details\n      .filter(Boolean)\n      .map(d => ({\n        label: cleanString(d.label || 'other', 50),\n        value: cleanString(d.value || '', 200)\n      }))\n      .filter(d => d.value)\n      .slice(0, 12)\n  : [];\n\nconst detectedType = cleanString(parsed.detected_type || original.message_type || 'other', 50);\nconst confidence = Math.max(0, Math.min(1, Number(parsed.confidence || 0.8)));\n\n// Собираем финальный текстовый слеп для нашей колонки ai_content (по которой ищет TSVECTOR)\nconst aiContent = [\n  `Type: ${detectedType}`,\n  `Summary: ${summary}`,\n  `Category: ${category}`,\n  `Language: ${language}`,\n  entities.length ? `Entities: ${entities.join(', ')}` : null,\n  importantDetails.length ? `Details: ${JSON.stringify(importantDetails)}` : null\n]\n  .filter(Boolean)\n  .join('\\n');\n\nconst cleanPayload = {\n  ...original,\n  message_for_ai: aiContent,\n  ai_summary: summary,\n  ai_category: category,\n  ai_language: language,\n  ai_entities: entities,\n  ai_important_details: importantDetails,\n  ai_confidence: confidence,\n  ai_raw_json: parsed,\n  ai_content: aiContent, // Это поле улетает прямиком в базу для полнотекстового триггера!\n  ai_raw_text: raw\n};\n\ndelete cleanPayload.gemini_request_body;\nreturn [{ json: cleanPayload }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        80
+      ],
+      "id": "374cd8cb-a168-4a24-a3c3-08d88bbdb805",
+      "name": "Parse Gemini analysis"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nlet decided = {};\ntry {\n  decided = $('Decide AI mode').first().json || {};\n} catch (e) {\n  decided = {};\n}\n\nlet original = {};\ntry {\n  original = $('When Executed by Another Workflow').first().json || {};\n} catch (e) {\n  original = {};\n}\n\nfunction firstValue(...values) {\n  for (const value of values) {\n    if (value !== undefined && value !== null && value !== '') {\n      return value;\n    }\n  }\n  return null;\n}\n\nconst processingMessageId = firstValue(\n  input.processing_message_id,\n  decided.processing_message_id,\n  original.processing_message_id\n);\n\nconst chatId = firstValue(\n  input.chat_id,\n  decided.chat_id,\n  original.chat_id\n);\n\nconst userId = firstValue(\n  input.user_id,\n  decided.user_id,\n  original.user_id\n);\n\nconst pendingMessageId = firstValue(\n  input.pending_message_id,\n  decided.pending_message_id,\n  original.pending_message_id\n);\n\nconst messageUuid = firstValue(\n  input.message_uuid,\n  decided.message_uuid,\n  original.message_uuid\n);\n\n// Собираем красивые переменные для вывода пользователю вместо ключевых слов\nconst category = String(input.ai_category || 'note').toUpperCase();\nconst summary = input.ai_summary || 'No summary available.';\n\nreturn [\n  {\n    json: {\n      user_id: userId,\n      chat_id: chatId,\n      pending_message_id: pendingMessageId,\n      message_uuid: messageUuid,\n      processing_message_id: processingMessageId,\n\n      // Формируем красивое текстовое превью для карточки подтверждения\n      text: \n`📦 *New Entry Analysis*\n📁 *Category:* ${category}\n\n📝 *AI Summary:*\n${summary}`,\n\n      inline_keyboard: [\n        [\n          {\n            text: '✅ Save',\n            callback_data: 'action:save_pending'\n          }\n        ],\n        [\n          {\n            text: '🧠 Full AI details',\n            callback_data: 'action:show_pending_ai'\n          }\n        ],\n        [\n          {\n            text: '❌ Cancel',\n            callback_data: 'action:cancel_pending'\n          }\n        ]\n      ]\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        64
+      ],
+      "id": "3f43e18a-0a0e-4a24-a827-cf20504903d3",
+      "name": "Build keywords review keyboard"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH input_data AS (\n  SELECT\n    {{ $json.user_id }}::BIGINT AS user_id,\n    {{ $json.chat_id }}::BIGINT AS chat_id,\n\n    {{ $json.pending_message_id || 'NULL' }}::BIGINT AS pending_message_id,\n    {{ $json.message_uuid ? \"'\" + String($json.message_uuid).replace(/'/g, \"''\") + \"'::UUID\" : \"NULL::UUID\" }} AS message_uuid,\n\n    '{{ String($json.message_type || \"text\").replace(/'/g, \"''\") }}'::TEXT AS message_type,\n\n    {{ $json.message_for_ai ? \"'\" + String($json.message_for_ai).replace(/'/g, \"''\") + \"'\" : \"NULL\" }}::TEXT AS message_for_ai,\n\n    {{ $json.ai_summary ? \"'\" + String($json.ai_summary).replace(/'/g, \"''\") + \"'\" : \"NULL\" }}::TEXT AS ai_summary,\n    {{ $json.ai_category ? \"'\" + String($json.ai_category).replace(/'/g, \"''\") + \"'\" : \"NULL\" }}::TEXT AS ai_category,\n    {{ $json.ai_language ? \"'\" + String($json.ai_language).replace(/'/g, \"''\") + \"'\" : \"NULL\" }}::TEXT AS ai_language,\n\n    {{ $json.ai_confidence !== null && $json.ai_confidence !== undefined ? Number($json.ai_confidence) : 0 }}::NUMERIC AS ai_confidence,\n\n    '{{ JSON.stringify($json.ai_entities || []).replace(/'/g, \"''\") }}'::JSONB AS entities_json,\n    '{{ JSON.stringify($json.ai_important_details || []).replace(/'/g, \"''\") }}'::JSONB AS important_details_json,\n    '{{ JSON.stringify($json.ai_raw_json || {}).replace(/'/g, \"''\") }}'::JSONB AS raw_ai_json,\n\n    '{{ String($json.ai_raw_text || \"{}\").replace(/'/g, \"''\") }}'::TEXT AS ai_raw_text\n),\n\nprepared AS (\n  SELECT\n    *,\n    COALESCE(NULLIF(ai_summary, ''), NULLIF(message_for_ai, ''), 'EMPTY') AS final_summary,\n    COALESCE(NULLIF(ai_category, ''), 'note') AS final_category,\n    COALESCE(NULLIF(ai_language, ''), 'unknown') AS final_language,\n    COALESCE(entities_json, '[]'::JSONB) AS final_entities,\n\n    -- Пересобираем ИИ-контент без внедрения ключевых слов в текстовый индекс\n    TRIM(CONCAT_WS(E'\\n',\n      'Message type: ' || COALESCE(message_type, ''),\n      'Summary: ' || COALESCE(ai_summary, ''),\n      'Category: ' || COALESCE(ai_category, ''),\n      'Language: ' || COALESCE(ai_language, ''),\n      'Entities: ' || COALESCE(entities_json::TEXT, '[]'),\n      'Important details: ' || COALESCE(important_details_json::TEXT, '[]'),\n      'Message: ' || COALESCE(message_for_ai, '')\n    )) AS final_ai_content\n\n  FROM input_data\n),\n\nmetadata_upsert AS (\n  INSERT INTO gnote.message_ai_metadata (\n    pending_message_id,\n    message_uuid,\n    user_id,\n    source_status,\n\n    summary,\n    detected_type,\n    category,\n    language,\n\n    keywords, -- Принудительно очищаем колонку\n    suggested_topics,\n    entities,\n    important_details,\n\n    confidence,\n    raw_ai_json,\n    ai_content,\n\n    model_name,\n    analysis_status,\n    created_at,\n    updated_at\n  )\n  SELECT\n    pending_message_id,\n    message_uuid,\n    user_id,\n    'pending',\n\n    final_summary,\n    final_category,\n    final_category,\n    final_language,\n\n    '[]'::JSONB, -- Всегда записываем пустой массив в базу\n    '[]'::JSONB,\n    final_entities,\n    important_details_json,\n\n    ai_confidence,\n    raw_ai_json,\n    final_ai_content,\n\n    'gemini',\n    'done',\n    NOW(),\n    NOW()\n  FROM prepared\n  WHERE pending_message_id IS NOT NULL\n\n  ON CONFLICT (pending_message_id)\n  WHERE pending_message_id IS NOT NULL\n  DO UPDATE SET\n    message_uuid = EXCLUDED.message_uuid,\n    user_id = EXCLUDED.user_id,\n    source_status = 'pending',\n\n    summary = EXCLUDED.summary,\n    detected_type = EXCLUDED.detected_type,\n    category = EXCLUDED.category,\n    language = EXCLUDED.language,\n\n    keywords = '[]'::JSONB, -- Очищаем при апдейте старых записей\n    suggested_topics = EXCLUDED.suggested_topics,\n    entities = EXCLUDED.entities,\n    important_details = EXCLUDED.important_details,\n\n    confidence = EXCLUDED.confidence,\n    raw_ai_json = EXCLUDED.raw_ai_json,\n    ai_content = EXCLUDED.ai_content,\n\n    model_name = EXCLUDED.model_name,\n    analysis_status = EXCLUDED.analysis_status,\n    updated_at = NOW()\n\n  RETURNING id\n)\n\nSELECT\n  prepared.user_id,\n  prepared.chat_id,\n  prepared.pending_message_id,\n  prepared.message_uuid,\n  prepared.message_type,\n  prepared.message_for_ai,\n  prepared.final_summary AS ai_summary,\n  prepared.final_category AS ai_category,\n  prepared.final_language AS ai_language,\n  prepared.ai_confidence,\n  '[]'::JSONB AS ai_keywords, -- Передаем пустой массив дальше по цепочке n8n\n  prepared.entities_json AS ai_entities,\n  prepared.important_details_json AS ai_important_details,\n  prepared.raw_ai_json AS ai_raw_json,\n  prepared.ai_raw_text AS text,\n  (SELECT COUNT(*) FROM metadata_upsert) AS metadata_rows,\n  0 AS index_rows\nFROM prepared;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        928,
+        64
+      ],
+      "id": "1ba74f5b-8058-4450-a192-9102712609ca",
+      "name": "Save AI metadata",
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\n\nlet source = {};\ntry {\n  source = $('Prepare Gemini file request').first().json || {};\n} catch (e) {\n  source = {};\n}\n\nfunction firstValue(...values) {\n  for (const value of values) {\n    if (value !== undefined && value !== null && value !== '') {\n      return value;\n    }\n  }\n  return null;\n}\n\nfunction safeString(value, fallback = '') {\n  if (value === undefined || value === null) return fallback;\n  return String(value);\n}\n\nfunction stripCodeFences(text) {\n  return safeString(text)\n    .replace(/^```json\\s*/i, '')\n    .replace(/^```\\s*/i, '')\n    .replace(/```$/i, '')\n    .trim();\n}\n\nfunction parseJsonFromText(text) {\n  const raw = stripCodeFences(text);\n  if (!raw) return null;\n  try {\n    return JSON.parse(raw);\n  } catch (e) {}\n\n  const match = raw.match(/\\{[\\s\\S]*\\}/);\n  if (match) {\n    try {\n      return JSON.parse(match[0]);\n    } catch (e) {}\n  }\n  return null;\n}\n\nfunction cleanString(value, maxLength = 600) {\n  const str = safeString(value).replace(/\\s+/g, ' ').trim();\n  if (str.length <= maxLength) return str;\n  return str.slice(0, maxLength).trim();\n}\n\nfunction extractGeminiText(response) {\n  const directText = safeString(response.text || response.ai_raw_text || '').trim();\n  if (directText) return directText;\n\n  return response.candidates?.[0]?.content?.parts\n    ?.map(part => part.text || '')\n    .join('\\n')\n    .trim() || '';\n}\n\n// Новая умная функция детекции языка\nfunction detectLanguageFromText(text, fallback = 'unknown') {\n  const str = safeString(text);\n  \n  // 1. Если в сопутствующем тексте физически есть буквы иврита — это иврит\n  if (/[\\u0590-\\u05FF]/.test(str)) {\n    return 'he';\n  }\n  // 2. Если в сопутствующем тексте есть кириллица — это русский\n  if (/[\\u0400-\\u04FF]/.test(str)) {\n    return 'ru';\n  }\n  \n  // 3. Если физического текста нет (как в JPG ветке), безоговорочно доверяем JSON-ответу Gemini\n  const fb = String(fallback || '').toLowerCase().trim();\n  if (fb === 'he' || fb === 'hebrew') return 'he';\n  if (fb === 'ru' || fb === 'russian') return 'ru';\n  if (fb === 'en' || fb === 'english') return 'en';\n  \n  return fb && fb !== 'unknown' ? fb : 'en';\n}\n\nconst geminiText = extractGeminiText(input);\nlet parsed = parseJsonFromText(geminiText);\n\nconst fileName = safeString(source.file_name || input.file_name || 'file');\nconst messageType = safeString(source.message_type || input.message_type || 'document');\nconst mimeType = safeString(source.mime_type || input.mime_type || 'application/octet-stream');\n\nif (!parsed) {\n  let fallbackSummary = geminiText;\n  const matchSummary = geminiText.match(/\"summary\"\\s*:\\s*\"([^\"]+)\"/);\n  if (matchSummary && matchSummary[1]) {\n    fallbackSummary = matchSummary[1];\n  } else {\n    fallbackSummary = fallbackSummary.replace(/\\{\"summary\":\\s*\"/i, '').replace(/\"\\s*\\}\\s*$/g, '');\n  }\n\n  parsed = {\n    summary: cleanString(fallbackSummary || `File saved: ${fileName}`, 600),\n    category: messageType === 'photo' ? 'photo' : 'document',\n    language: 'en',\n    entities: [],\n    important_details: [],\n    confidence: 0.4\n  };\n}\n\nconst parsedSummary = cleanString(parsed.summary || `File saved: ${fileName}`, 600);\nlet parsedCategory = cleanString(parsed.category || 'document', 50).toLowerCase();\n\nconst allowedCategories = [\n  'recipe', 'technical', 'finance', 'legal', 'career', 'travel', 'personal', 'document', 'photo', 'shopping', 'health', 'task', 'note', 'other', 'business_card'\n];\nif (!allowedCategories.includes(parsedCategory)) {\n  parsedCategory = 'document';\n}\n\nconst importantDetails = Array.isArray(parsed.important_details) \n  ? parsed.important_details.filter(Boolean).map(d => ({\n      label: cleanString(d.label || 'detail', 50),\n      value: cleanString(d.value || '', 200)\n    })).filter(d => d.value)\n  : [];\n\n// Вызываем обновленный определитель языка\nlet rawLanguageFromAi = parsed.language || parsed.detected_language || 'en';\nlet language = detectLanguageFromText(\n  `${parsedSummary} ${parsed.visible_or_extracted_text || ''} ${source.caption || ''} ${fileName}`,\n  rawLanguageFromAi\n);\n\nconst normalizedPayload = {\n  summary: parsedSummary,\n  category: parsedCategory,\n  language: language,\n  entities: Array.isArray(parsed.entities) ? parsed.entities.map(e => cleanString(e, 80)) : [],\n  important_details: importantDetails,\n  visible_or_extracted_text: parsed.visible_or_extracted_text || null,\n  confidence: Math.max(0.1, Math.min(1, Number(parsed.confidence || 0.8)))\n};\n\n// Склеиваем финальный ai_content без ключевых слов\nconst aiContent = [\n  `Type: ${messageType}`,\n  `Summary: ${normalizedPayload.summary}`,\n  `Category: ${normalizedPayload.category}`,\n  `Language: ${normalizedPayload.language}`,\n  normalizedPayload.entities.length ? `Entities: ${normalizedPayload.entities.join(', ')}` : null,\n  normalizedPayload.important_details.length ? `Details: ${JSON.stringify(normalizedPayload.important_details)}` : null\n].filter(Boolean).join('\\n');\n\nreturn [\n  {\n    json: {\n      ...source,\n      ...input,\n      user_id: firstValue(source.user_id, input.user_id),\n      chat_id: firstValue(source.chat_id, input.chat_id),\n      pending_message_id: firstValue(source.pending_message_id, input.pending_message_id),\n      message_uuid: firstValue(source.message_uuid, input.message_uuid),\n      \n      message_type: messageType,\n      file_name: fileName,\n      mime_type: mimeType,\n      caption: source.caption || input.caption || '',\n      \n      message_for_ai: aiContent,\n      ai_content: aiContent,\n      ai_summary: normalizedPayload.summary,\n      ai_category: normalizedPayload.category,\n      ai_language: normalizedPayload.language,\n      ai_entities: normalizedPayload.entities,\n      ai_important_details: normalizedPayload.important_details,\n      ai_confidence: normalizedPayload.confidence,\n      ai_keywords: [],\n      ai_raw_json: normalizedPayload,\n      ai_raw_text: geminiText,\n      text: JSON.stringify(normalizedPayload)\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        -64
+      ],
+      "id": "34469cd7-054f-42aa-afba-44c2f81bd92d",
+      "name": "Normalize Gemini file result"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\n\nconst binary = item.binary || {};\nconst keys = Object.keys(binary);\n\nconst debug = {\n  has_binary: keys.length > 0,\n  binary_keys: keys,\n  binary_meta: {}\n};\n\nfor (const key of keys) {\n  const meta = binary[key];\n\n  debug.binary_meta[key] = {\n    mimeType: meta.mimeType || meta.mime_type || null,\n    fileName: meta.fileName || meta.file_name || null,\n    fileSize: meta.fileSize || meta.file_size || null,\n    has_data_field: Boolean(meta.data)\n  };\n\n  try {\n    const buffer = await this.helpers.getBinaryDataBuffer(0, key);\n\n    debug.binary_meta[key].buffer_size = buffer.length;\n    debug.binary_meta[key].buffer_base64_preview = buffer\n      .toString('base64')\n      .slice(0, 40);\n  } catch (error) {\n    debug.binary_meta[key].buffer_error = error.message;\n  }\n}\n\nreturn [\n  {\n    json: {\n      ...item.json,\n      debug_downloaded_binary: debug\n    },\n    binary: item.binary\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        48,
+        -160
+      ],
+      "id": "f8c4d245-b06d-4715-81c6-0f33ae389976",
+      "name": "Debug downloaded binary"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Decide AI mode",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF should analyze file": {
+      "main": [
+        [
+          {
+            "node": "Telegram getFile",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Gemini text request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram getFile": {
+      "main": [
+        [
+          {
+            "node": "Download Telegram file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Telegram file": {
+      "main": [
+        [
+          {
+            "node": "Debug downloaded binary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Gemini file request": {
+      "main": [
+        [
+          {
+            "node": "IF skip Gemini analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF skip Gemini analysis": {
+      "main": [
+        [
+          {
+            "node": "Return unsupported file analysis",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gemini analyze file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini analyze file": {
+      "main": [
+        [
+          {
+            "node": "Normalize Gemini file result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decide AI mode": {
+      "main": [
+        [
+          {
+            "node": "IF should analyze file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Gemini text request": {
+      "main": [
+        [
+          {
+            "node": "Gemini analyze message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini analyze message": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gemini analysis": {
+      "main": [
+        [
+          {
+            "node": "Save AI metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse file analysis": {
+      "main": [
+        [
+          {
+            "node": "Save AI metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return unsupported file analysis": {
+      "main": [
+        [
+          {
+            "node": "Save AI metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save AI metadata": {
+      "main": [
+        [
+          {
+            "node": "Build keywords review keyboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Gemini file result": {
+      "main": [
+        [
+          {
+            "node": "Parse file analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Debug downloaded binary": {
+      "main": [
+        [
+          {
+            "node": "Prepare Gemini file request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "53832824-b0a2-47d9-ac59-abb0d4108845",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"
+  },
+  "id": "29RmHLQgRiiy7qh4h1h3A",
+  "tags": []
+}

@@ -1,0 +1,180 @@
+{
+  "name": "Memoraq - Search Messages",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "8df9fb1e-ab68-4dbc-8429-19f798f7f866",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nconst msg = input.message && typeof input.message === 'object'\n  ? input.message\n  : {};\n\nconst from = msg.from || {};\nconst chat = msg.chat || {};\n\nconst text = String(\n  input.search_query ||\n  input.raw_text ||\n  input.text ||\n  input.content ||\n  (typeof input.message === 'string' ? input.message : '') ||\n  msg.text ||\n  msg.caption ||\n  ''\n).trim();\n\nconst userId =\n  input.user_id ||\n  from.id ||\n  chat.id ||\n  null;\n\nconst chatId =\n  input.chat_id ||\n  chat.id ||\n  from.id ||\n  userId ||\n  null;\n\nreturn [\n  {\n    json: {\n      ...input,\n\n      user_id: userId,\n      chat_id: chatId,\n\n      search_query: text,\n      is_empty_search_query: text.length === 0\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "627d15c2-2c38-4910-aa26-b3e1710e1701",
+      "name": "Prepare search query input"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1b11f622-17a0-4303-a3e3-cb4bf139a3bc",
+              "leftValue": "={{ Boolean($json.is_empty_search_query) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        416,
+        0
+      ],
+      "id": "33c05588-2e19-472a-a24d-74f81a18dd22",
+      "name": "IF empty search query"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nreturn [\n  {\n    json: {\n      chat_id: input.chat_id,\n      user_id: input.user_id,\n      ok: false,\n      search_query: input.search_query || '',\n      text: `I couldn't read the search query. Please send it as text, or try another voice message.`,\n      inline_keyboard: [\n        [\n          {\n            text: '🔎 Search again',\n            callback_data: 'action:search'\n          }\n        ],\n        [\n          {\n            text: '❌ Cancel',\n            callback_data: 'action:cancel_search'\n          }\n        ]\n      ]\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        -96
+      ],
+      "id": "d1c2aa2b-fb07-4d8e-b32b-0b7bec1e60d2",
+      "name": "Build empty search query response"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH input_data AS (\n  SELECT\n    {{ $json.user_id }}::BIGINT AS user_id,\n    {{ $json.chat_id }}::BIGINT AS chat_id,\n    LOWER(TRIM('{{ String($json.search_query || \"\").replace(/'/g, \"''\") }}')) AS q\n),\n\nsettings AS (\n  SELECT\n    COALESCE(\n      (\n        SELECT (value #>> '{}')::INTEGER\n        FROM gnote.app_settings\n        WHERE key = 'search.max_results_limit'\n      ),\n      100\n    ) AS max_results_limit\n),\n\n-- 1. Format the search input into a valid tsquery payload by connecting tokens with '&'\nprepared_query AS (\n  SELECT \n    regexp_replace(q, '\\s+', ' & ', 'g') AS ts_q\n  FROM input_data\n),\n\n-- 2. Leverage the GIN-indexed fts_vector table directly for instant semantic-text matches\nmatched_metadata AS (\n  SELECT \n    meta.id AS meta_id,\n    meta.message_id AS meta_msg_id,\n    meta.message_uuid AS meta_msg_uuid,\n    meta.summary AS ai_summary,\n    meta.category AS ai_category,\n    meta.language AS ai_language,\n    meta.keywords AS ai_keywords,\n    meta.ai_content AS ai_content,\n    ts_rank(meta.fts_vector, to_tsquery('simple', (SELECT ts_q FROM prepared_query))) AS rank_score\n  FROM gnote.message_ai_metadata meta\n  WHERE meta.user_id = (SELECT user_id FROM input_data)\n    AND COALESCE(meta.source_status, 'attached') <> 'deleted'\n    AND meta.fts_vector @@ to_tsquery('simple', (SELECT ts_q FROM prepared_query))\n),\n\n-- 3. Hydrate the fast full-text match rows with actual Telegram layout messages parameters\nmessages_base AS (\n  SELECT\n    m.id AS message_id,\n    m.id AS id,\n    m.user_id,\n    (SELECT chat_id FROM input_data) AS chat_id,\n    m.topic_id,\n    t.title AS topic_title,\n    m.message_uuid,\n    m.content,\n    m.created_at,\n    m.message_type,\n    m.file_id,\n    m.file_unique_id,\n    m.file_name,\n    m.mime_type,\n    m.caption,\n    m.telegram_file_path,\n    m.file_url,\n    m.latitude,\n    m.longitude,\n    m.location_title,\n    m.location_address,\n    m.maps_url,\n    mm.ai_summary,\n    mm.ai_category,\n    mm.ai_language,\n    mm.ai_keywords,\n    mm.ai_content,\n    -- Normalize ranking score into an integer for compatible scaling with n8n Code layers\n    (mm.rank_score * 100)::INTEGER AS relevance_score\n  FROM gnote.messages m\n  INNER JOIN matched_metadata mm \n     ON (mm.meta_msg_id = m.id OR mm.meta_msg_uuid = m.message_uuid)\n  LEFT JOIN gnote.topics t\n    ON t.id = m.topic_id AND t.user_id = m.user_id\n  WHERE m.user_id = (SELECT user_id FROM input_data)\n    AND m.deleted_at IS NULL\n),\n\nranked AS (\n  SELECT\n    *,\n    ROW_NUMBER() OVER (ORDER BY relevance_score DESC, created_at DESC, message_id DESC) AS result_number,\n    COUNT(*) OVER () AS total_results\n  FROM messages_base\n)\n\nSELECT\n  chat_id,\n  user_id,\n  message_id,\n  id,\n  topic_id,\n  topic_title,\n  result_number,\n  total_results,\n  relevance_score,\n  (SELECT q FROM input_data) AS search_query,\n  message_uuid,\n  content,\n  created_at,\n  message_type,\n  file_id,\n  file_unique_id,\n  file_name,\n  mime_type,\n  caption,\n  telegram_file_path,\n  file_url,\n  latitude,\n  longitude,\n  location_title,\n  location_address,\n  maps_url,\n  ai_summary,\n  ai_category,\n  ai_language,\n  ai_keywords,\n  ai_content,\n  CASE\n    WHEN message_type = 'photo' THEN 'photo'\n    WHEN message_type IN ('document', 'file', 'audio', 'voice', 'video', 'video_note') THEN 'file'\n    WHEN latitude IS NOT NULL AND longitude IS NOT NULL THEN 'location'\n    ELSE 'text'\n  END AS result_action,\n  COALESCE(\n    NULLIF(file_name, ''),\n    NULLIF(caption, ''),\n    NULLIF(content, ''),\n    NULLIF(location_title, ''),\n    NULLIF(location_address, ''),\n    NULLIF(maps_url, ''),\n    NULLIF(ai_summary, ''),\n    'Message'\n  ) AS display_text\nFROM ranked\nORDER BY result_number\nLIMIT (SELECT max_results_limit FROM settings);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        624,
+        96
+      ],
+      "id": "249e7637-f4e4-46fd-a04e-370bc88dc4a2",
+      "name": "Search messages",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nlet input = {};\n\ntry {\n  input = $('Prepare search query input').first().json || {};\n} catch (e) {\n  input = {};\n}\n\nconst realResults = items.filter(item => {\n  const r = item.json || {};\n  return r.message_id || r.id;\n});\n\nconst chatId =\n  input.chat_id ||\n  realResults[0]?.json?.chat_id ||\n  null;\n\nconst userId =\n  input.user_id ||\n  realResults[0]?.json?.user_id ||\n  null;\n\nconst searchQuery =\n  input.search_query ||\n  realResults[0]?.json?.search_query ||\n  '';\n\nif (realResults.length === 0) {\n  return [\n    {\n      json: {\n        no_results: true,\n        user_id: userId,\n        chat_id: chatId,\n        search_query: searchQuery,\n        total_results: 0\n      }\n    }\n  ];\n}\n\nreturn realResults.map((item, index) => {\n  const r = item.json || {};\n\n  return {\n    json: {\n      id: r.id || r.message_id,\n      message_id: r.message_id || r.id,\n\n      user_id: r.user_id || userId,\n      chat_id: r.chat_id || chatId,\n\n      topic_id: r.topic_id || null,\n      topic_title: r.topic_title || null,\n\n      result_number: Number(r.result_number || index + 1),\n      result_position: Number(r.result_number || index + 1),\n      total_results: Number(r.total_results || realResults.length),\n      relevance_score: r.relevance_score !== undefined && r.relevance_score !== null\n        ? Number(r.relevance_score)\n        : null,\n\n      search_query: r.search_query || searchQuery,\n\n      message_uuid: r.message_uuid || null,\n      content: r.content || null,\n      created_at: r.created_at || null,\n      message_type: r.message_type || 'text',\n\n      file_id: r.file_id || null,\n      file_unique_id: r.file_unique_id || null,\n      file_name: r.file_name || null,\n      mime_type: r.mime_type || null,\n      caption: r.caption || null,\n      telegram_file_path: r.telegram_file_path || null,\n      file_url: r.file_url || null,\n\n      latitude: r.latitude || null,\n      longitude: r.longitude || null,\n      location_title: r.location_title || null,\n      location_address: r.location_address || null,\n      maps_url: r.maps_url || null,\n\n      ai_summary: r.ai_summary || null,\n      ai_category: r.ai_category || null,\n      ai_language: r.ai_language || null,\n      ai_keywords: r.ai_keywords || null,\n      ai_content: r.ai_content || null,\n\n      result_action: r.result_action || 'text',\n      display_text:\n        r.display_text ||\n        r.file_name ||\n        r.caption ||\n        r.content ||\n        r.location_title ||\n        r.location_address ||\n        r.maps_url ||\n        r.ai_summary ||\n        'Message'\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        96
+      ],
+      "id": "f09d2037-cb65-42b5-9582-1ba5f565efba",
+      "name": "Return search rows to main workflow"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Prepare search query input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare search query input": {
+      "main": [
+        [
+          {
+            "node": "IF empty search query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF empty search query": {
+      "main": [
+        [
+          {
+            "node": "Build empty search query response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search messages": {
+      "main": [
+        [
+          {
+            "node": "Return search rows to main workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "bfe13508-abc8-4477-a74b-02581c4078da",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"
+  },
+  "id": "LKbS6PuajKHdJMKhtiElU",
+  "tags": []
+}

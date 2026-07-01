@@ -26,6 +26,44 @@ CREATE SCHEMA gnote;
 ALTER SCHEMA gnote OWNER TO postgres;
 
 --
+-- Name: message_metadata_fts_trigger(); Type: FUNCTION; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE FUNCTION gnote.message_metadata_fts_trigger() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  _lang_full TEXT;
+BEGIN
+  -- Маппинг ISO кодов в текстовые названия для поиска
+  _lang_full := CASE LOWER(NEW.language)
+    WHEN 'he' THEN 'hebrew ivrit иврит'
+    WHEN 'ru' THEN 'russian русский russkiy'
+    WHEN 'en' THEN 'english английский inglish'
+    WHEN 'zh' THEN 'chinese китайский'
+    WHEN 'es' THEN 'spanish испанский'
+    WHEN 'fr' THEN 'french французский'
+    WHEN 'de' THEN 'german немецкий'
+    ELSE ''
+  END;
+
+  -- Сборка fts_vector (учитываем, что keywords — это JSONB)
+  NEW.fts_vector := 
+    setweight(to_tsvector('simple', COALESCE(NEW.summary, '')), 'A') ||
+    setweight(to_tsvector('simple', COALESCE(NEW.category, '')), 'B') ||
+    setweight(to_tsvector('simple', COALESCE(NEW.detected_type, '')), 'B') ||
+    setweight(to_tsvector('simple', COALESCE(_lang_full, '')), 'A') || 
+    setweight(to_tsvector('simple', COALESCE(NEW.language, '')), 'B') ||
+    setweight(jsonb_to_tsvector('simple', COALESCE(NEW.keywords, '[]'::jsonb), '["string"]'), 'A');
+    
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION gnote.message_metadata_fts_trigger() OWNER TO supabase_admin;
+
+--
 -- Name: sync_message_counters(); Type: FUNCTION; Schema: gnote; Owner: supabase_admin
 --
 
@@ -194,6 +232,7 @@ CREATE TABLE gnote.message_ai_metadata (
     ai_content text,
     model_name text DEFAULT 'gemini'::text,
     entities jsonb DEFAULT '[]'::jsonb,
+    fts_vector tsvector,
     CONSTRAINT chk_message_ai_metadata_source_status CHECK ((source_status = ANY (ARRAY['pending'::text, 'active'::text, 'deleted'::text, 'failed'::text, 'orphan'::text])))
 );
 
@@ -658,6 +697,13 @@ CREATE INDEX idx_ai_usage_log_user_status_created ON gnote.ai_usage_log USING bt
 
 
 --
+-- Name: idx_message_metadata_fts; Type: INDEX; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE INDEX idx_message_metadata_fts ON gnote.message_ai_metadata USING gin (fts_vector);
+
+
+--
 -- Name: idx_search_results_message; Type: INDEX; Schema: gnote; Owner: supabase_admin
 --
 
@@ -760,6 +806,13 @@ CREATE UNIQUE INDEX ux_messages_user_uuid ON gnote.messages USING btree (user_id
 --
 
 CREATE UNIQUE INDEX ux_pending_messages_user_uuid ON gnote.pending_messages USING btree (user_id, message_uuid) WHERE (message_uuid IS NOT NULL);
+
+
+--
+-- Name: message_ai_metadata trg_message_metadata_fts; Type: TRIGGER; Schema: gnote; Owner: supabase_admin
+--
+
+CREATE TRIGGER trg_message_metadata_fts BEFORE INSERT OR UPDATE ON gnote.message_ai_metadata FOR EACH ROW EXECUTE FUNCTION gnote.message_metadata_fts_trigger();
 
 
 --

@@ -838,6 +838,56 @@
                 },
                 "conditions": [
                   {
+                    "id": "debe0ceb-d6b8-4faa-a71f-00dfe8a1b25a",
+                    "leftValue": "={{ $json.message?.text === '/delete_all' }}",
+                    "rightValue": "true",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "delete all"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "95849e82-fb77-471b-9214-948c40bc0bd1",
+                    "leftValue": "={{ $json.message?.text === '/status' }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "statistics"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
                     "id": "92d99f41-3535-465c-b860-f9a354843cdc",
                     "leftValue": "={{ ['/start', '/help'].includes($json.message?.text || '') }}",
                     "rightValue": "",
@@ -1315,7 +1365,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const input = $input.first().json || {};\n\nfunction clean(value) {\n  return String(value || '').replace(/\\s+/g, ' ').trim();\n}\n\nfunction short(value, max = 2500) {\n  const text = clean(value);\n  if (!text) return '';\n  return text.length > max ? text.slice(0, max - 3) + '...' : text;\n}\n\nfunction toArray(value) {\n  if (Array.isArray(value)) return value;\n\n  if (typeof value === 'string') {\n    try {\n      const parsed = JSON.parse(value);\n      if (Array.isArray(parsed)) return parsed;\n    } catch (e) {}\n\n    return value\n      .split(',')\n      .map(v => v.trim())\n      .filter(Boolean);\n  }\n\n  return [];\n}\n\nif (!input.found) {\n  return [\n    {\n      json: {\n        chat_id: input.chat_id,\n        callback_query_id: input.callback_query_id,\n        text: 'Summary not found ⚠️'\n      }\n    }\n  ];\n}\n\nconst title =\n  input.file_name ||\n  input.caption ||\n  input.content ||\n  'Message';\n\nconst summary =\n  input.ai_summary ||\n  input.ai_content ||\n  '';\n\nconst keywords = toArray(input.ai_keywords)\n  .filter(Boolean)\n  .slice(0, 20)\n  .join(', ');\n\nlet text = `🧠 Summary\n\n${short(title, 180)}`;\n\nif (summary) {\n  text += `\\n\\n${short(summary, 2200)}`;\n} else {\n  text += `\\n\\nNo AI summary found for this message.`;\n}\n\nif (input.ai_category || input.ai_language) {\n  text += `\\n\\nCategory: ${input.ai_category || 'unknown'}`;\n  text += `\\nLanguage: ${input.ai_language || 'unknown'}`;\n}\n\nif (keywords) {\n  text += `\\n\\nKeywords:\\n${keywords}`;\n}\n\nreturn [\n  {\n    json: {\n      chat_id: input.chat_id,\n      callback_query_id: input.callback_query_id,\n      text\n    }\n  }\n];"
+        "jsCode": "const input = $input.first().json || {};\n\nfunction clean(value) {\n  return String(value || '').replace(/\\s+/g, ' ').trim();\n}\n\nfunction short(value, max = 2500) {\n  const text = clean(value);\n  if (!text) return '';\n  return text.length > max ? text.slice(0, max - 3) + '...' : text;\n}\n\nif (!input.found) {\n  return [\n    {\n      json: {\n        chat_id: input.chat_id,\n        callback_query_id: input.callback_query_id,\n        text: 'Summary not found ⚠️'\n      }\n    }\n  ];\n}\n\nconst title =\n  input.file_name ||\n  input.caption ||\n  input.content ||\n  'Message';\n\nconst summary =\n  input.ai_summary ||\n  input.ai_content ||\n  '';\n\n// Маппинг для красивого и правильного отображения языков\nconst languageMap = {\n  'he': 'Hebrew 🇮🇱',\n  'ru': 'Russian 🇷🇺',\n  'en': 'English 🇬🇧',\n  'hebrew': 'Hebrew 🇮🇱',\n  'russian': 'Russian 🇷🇺',\n  'english': 'English 🇬🇧'\n};\n\nconst displayLanguage = languageMap[String(input.ai_language).toLowerCase()] || input.ai_language || 'Unknown';\nconst category = String(input.ai_category || 'note').toUpperCase();\n\n// Формируем чистый текст БЕЗ блока Keywords\nlet text = `🧠 *Summary*\\n\\n*${short(title, 180)}*`;\n\nif (summary) {\n  text += `\\n\\n${short(summary, 2200)}`;\n} else {\n  text += `\\n\\nNo AI summary found for this message.`;\n}\n\ntext += `\\n\\n*Category:* ${category}`;\ntext += `\\n*Document Language:* ${displayLanguage}`;\n\nreturn [\n  {\n    json: {\n      chat_id: input.chat_id,\n      callback_query_id: input.callback_query_id,\n      text\n    }\n  }\n];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -2236,8 +2286,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.3,
       "position": [
-        -96,
-        192
+        688,
+        416
       ],
       "id": "5ba1322d-5421-4baf-8533-e1835f14e8c1",
       "name": "Call 'Memoraq - show help'"
@@ -2264,8 +2314,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.3,
       "position": [
-        -112,
-        416
+        -496,
+        864
       ],
       "id": "87ba3eca-8b4e-4346-9e1d-94419adbc672",
       "name": "Call 'Memoraq - show help'1"
@@ -2629,6 +2679,98 @@
       ],
       "id": "60f02e0c-f8f2-486d-b0e5-2896b5fda8a9",
       "name": "Call 'Memoraq - show search results'4"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- 1. Cascadingly delete all user messages from the main storage table\nDELETE FROM gnote.messages \nWHERE user_id = {{ $json.message.from.id }}::BIGINT;\n\n-- 2. Clear the temporary table holding messages awaiting user confirmation\nDELETE FROM gnote.pending_messages \nWHERE user_id = {{ $json.message.from.id }}::BIGINT;\n\n-- 3. Clear the history of search sessions to reset the interface results\nDELETE FROM gnote.search_sessions \nWHERE user_id = {{ $json.message.from.id }}::BIGINT;\n\n-- 4. Reset the dialogue state machine back to the initial 'idle' status\nUPDATE gnote.user_state \nSET state = 'idle', search_query = NULL, updated_at = NOW()\nWHERE user_id = {{ $json.message.from.id }}::BIGINT;\n\n-- 5. Hard reset the cumulative message counter inside the user profile row\nUPDATE gnote.users \nSET all_messages = 0, last_visit = NOW()\nWHERE id = {{ $json.message.from.id }}::BIGINT;\n\n-- 6. Explicitly return chat_id for the subsequent Telegram notification node in n8n\nSELECT {{ $json.message.chat.id }}::BIGINT AS chat_id;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -672,
+        480
+      ],
+      "id": "04f10786-e2e4-4f36-843f-9315ef7394c4",
+      "name": "Delete All User Data",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $env.TELEGRAM_BOT_TOKEN + '/sendMessage' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  {\n    chat_id: $json.chat_id,\n    text: 'Memoraq Debug: All your data (messages, search sessions, AI states) has been successfully deleted. Your profile has been reset to idle.'\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -480,
+        480
+      ],
+      "id": "d6099979-d5ad-4110-acf6-bd3722340664",
+      "name": "Send delete all success"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- 1. Create a baseline configuration matrix for all expected Telegram message types\nWITH expected_types AS (\n  SELECT unnest(ARRAY[\n    'text', 'photo', 'document', 'voice', \n    'audio', 'video', 'video_note', 'location'\n  ]) AS message_type\n),\n\n-- 2. Fetch the overall cumulative message metric from the global users registry row\nuser_profile AS (\n  SELECT \n    id AS user_id,\n    COALESCE(all_messages, 0) AS cumulative_total,\n    first_visit\n  FROM gnote.users\n  WHERE id = {{ $json.message.from.id }}::BIGINT\n),\n\n-- 3. Normalize messages handling image extensions uploaded as uncompressed documents\nnormalized_messages AS (\n  SELECT\n    id,\n    user_id,\n    deleted_at,\n    file_name,\n    CASE \n      -- If it's a document but has an image extension, classify it as a photo for stats\n      WHEN message_type = 'document' AND LOWER(RIGHT(file_name, 4)) IN ('jpeg', '.jpg', '.png', 'webp', '.gif') THEN 'photo'\n      ELSE message_type\n    END AS adjusted_message_type\n  FROM gnote.messages\n  WHERE user_id = {{ $json.message.from.id }}::BIGINT\n    AND deleted_at IS NULL\n),\n\n-- 4. Calculate real-time database totals grouped by the adjusted message types\nreal_counts AS (\n  SELECT \n    adjusted_message_type AS message_type,\n    COUNT(*)::INTEGER AS count\n  FROM normalized_messages\n  GROUP BY adjusted_message_type\n),\n\n-- 5. Merge baseline matrix with adjusted totals to avoid missing types in n8n execution\naggregated_stats AS (\n  SELECT \n    et.message_type,\n    COALESCE(rc.count, 0) AS total_count\n  FROM expected_types et\n  LEFT JOIN real_counts rc ON rc.message_type = et.message_type\n),\n\n-- 6. Isolate specific file path extensions strictly for real non-image documents\ndocument_extensions AS (\n  SELECT \n    LOWER(RIGHT(file_name, 4)) AS ext,\n    COUNT(*)::INTEGER AS count\n  FROM normalized_messages\n  WHERE adjusted_message_type = 'document'\n    AND file_name IS NOT NULL\n  GROUP BY LOWER(RIGHT(file_name, 4))\n)\n\n-- 7. Combine all metric tables into a single structural JSON output payload for n8n\nSELECT \n  {{ $json.message.chat.id }}::BIGINT AS chat_id,\n  COALESCE((SELECT cumulative_total FROM user_profile), 0)::INTEGER AS profile_total_counter,\n  (SELECT COUNT(*)::INTEGER FROM gnote.messages WHERE user_id = {{ $json.message.from.id }}::BIGINT AND deleted_at IS NULL) AS real_total,\n  (SELECT first_visit FROM user_profile) AS member_since,\n  \n  -- Extract specific adjusted message type totals mapped dynamically\n  MAX(CASE WHEN message_type = 'text' THEN total_count ELSE 0 END) AS total_texts,\n  MAX(CASE WHEN message_type = 'photo' THEN total_count ELSE 0 END) AS total_photos,\n  MAX(CASE WHEN message_type = 'document' THEN total_count ELSE 0 END) AS total_documents,\n  MAX(CASE WHEN message_type = 'voice' THEN total_count ELSE 0 END) AS total_voices,\n  MAX(CASE WHEN message_type = 'audio' THEN total_count ELSE 0 END) AS total_audios,\n  MAX(CASE WHEN message_type = 'video' THEN total_count ELSE 0 END) AS total_videos,\n  MAX(CASE WHEN message_type = 'video_note' THEN total_count ELSE 0 END) AS total_video_notes,\n  MAX(CASE WHEN message_type = 'location' THEN total_count ELSE 0 END) AS total_locations,\n  \n  -- Extract specialized sub-type totals for target document categories\n  COALESCE((SELECT SUM(count)::INTEGER FROM document_extensions WHERE ext IN ('.pdf', 'pdf')), 0) AS docs_pdf,\n  COALESCE((SELECT SUM(count)::INTEGER FROM document_extensions WHERE ext IN ('.doc', 'docx', 'rtf', 'txt', '.txt')), 0) AS docs_text_files,\n  COALESCE((SELECT SUM(count)::INTEGER FROM document_extensions WHERE ext IN ('.xls', 'xlsx', '.csv', 'csv')), 0) AS docs_spreadsheets\nFROM aggregated_stats;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -624,
+        608
+      ],
+      "id": "dd5b543b-a47f-43e5-b1a8-7d3fc846a854",
+      "name": "Get user statistics",
+      "credentials": {
+        "postgres": {
+          "id": "MuKN7jUvqjq4touw",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const stats = $input.first().json || {};\n\nconst total = Number(stats.real_total || 0);\n\nlet text = `📊 **Memoraq Vault Statistics**\\n\\n`;\n\nif (total === 0) {\n  text += `Your digital brain is completely empty.\\nSave some thoughts, links, photos, or voice notes to see your stats metrics here! 🧠`;\n} else {\n  text += `🗂 Total entries: **${total}**\\n`;\n  text += `───────────────\\n`;\n  text += `💬 Text notes: **${stats.total_texts || 0}**\\n`;\n  text += `🖼️ Photographs: **${stats.total_photos || 0}**\\n`;\n  text += `🎙️ Voice recordings: **${stats.total_voices || 0}**\\n`;\n  text += `🎬 Videos & notes: **${Number(stats.total_videos || 0) + Number(stats.total_video_notes || 0)}**\\n`;\n  text += `📍 Saved locations: **${stats.total_locations || 0}**\\n`;\n  text += `📄 Total documents: **${stats.total_documents || 0}**\\n`;\n  \n  // Показываем подкатегории только если у пользователя есть файлы типа 'document'\n  if (Number(stats.total_documents) > 0) {\n    text += `   ├── 📕 PDF Books/Docs: **${stats.docs_pdf || 0}**\\n`;\n    text += `   ├── 📘 Word/Text files: **${stats.docs_text_files || 0}**\\n`;\n    text += `   └── 📗 Tables/Excel/CSV: **${stats.docs_spreadsheets || 0}**\\n`;\n  }\n}\n\nreturn [\n  {\n    json: {\n      chat_id: stats.chat_id,\n      text: text\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        608
+      ],
+      "id": "f6e6063a-c320-4ed5-ac70-bb887894d181",
+      "name": "Format stats message"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $env.TELEGRAM_BOT_TOKEN + '/sendMessage' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    \"chat_id\": $json.chat_id,\n    \"text\": $json.text\n  })\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -320,
+        608
+      ],
+      "id": "4c704e38-f730-4bbc-80eb-cb23a1017821",
+      "name": "HTTP Request"
     }
   ],
   "pinData": {},
@@ -2933,6 +3075,20 @@
     },
     "switch messages": {
       "main": [
+        [
+          {
+            "node": "Delete All User Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get user statistics",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Call 'Memoraq - show help'",
@@ -3732,6 +3888,39 @@
           }
         ]
       ]
+    },
+    "Delete All User Data": {
+      "main": [
+        [
+          {
+            "node": "Send delete all success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get user statistics": {
+      "main": [
+        [
+          {
+            "node": "Format stats message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format stats message": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -3740,7 +3929,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "425242ef-19c8-4bec-bfc2-831d74664998",
+  "versionId": "520648a0-e4d9-4597-9158-72c3ddce8449",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"

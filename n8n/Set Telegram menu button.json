@@ -1,0 +1,89 @@
+{
+  "name": "Set Telegram menu button",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $env.TELEGRAM_BOT_TOKEN + '/setMyCommands' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"commands\": [\n    {\n      \"command\": \"start\",\n      \"description\": \"Main menu\"\n    },\n    {\n      \"command\": \"search\",\n      \"description\": \"Search saved items\"\n    },\n    {\n      \"command\": \"keywords\",\n      \"description\": \"Show keywords\"\n    },\n    {\n      \"command\": \"help\",\n      \"description\": \"Read help\"\n    },\n    {\n      \"command\": \"feedback\",\n      \"description\": \"Send feedback\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -384,
+        16
+      ],
+      "id": "45ee6ed5-4805-415e-97fb-7b6f061f8c36",
+      "name": "Setup Telegram menu"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.telegram.org/bot' + $env.TELEGRAM_BOT_TOKEN + '/setChatMenuButton' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"menu_button\": {\n    \"type\": \"commands\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -176,
+        16
+      ],
+      "id": "15c50eaa-4265-45de-aea6-ce3e93bf83bb",
+      "name": "Set Telegram menu button"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -592,
+        16
+      ],
+      "id": "cebbedf0-59b8-4652-b6a5-615816ad9908",
+      "name": "When clicking ‘Execute workflow’"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Setup Telegram menu": {
+      "main": [
+        [
+          {
+            "node": "Set Telegram menu button",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Setup Telegram menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "f29ce8ac-19a1-45b1-988e-eb7057efc56a",
+  "meta": {
+    "instanceId": "55f8b8197c6537282f737c6a15b6220454fb4f0ecbeb5fdd2fcb6f35f67501c5"
+  },
+  "id": "xAEvWbHP-05Ujk4zhTtyl",
+  "tags": []
+}
